@@ -96,20 +96,31 @@ def find_shared_nodes(neuron_list1, neuron_list2, merge1, merge2):
     total_neurons2 = get_total_neurons(combined_neuron2_list)
     shared_neurons = list(set(total_neurons1) & set(total_neurons2))
     return shared_neurons
+
     
-def get_n_order_neurons(classifications_neu_list, connections, order):
-    current_set = set(classifications_neu_list)
-    visited = set(classifications_neu_list)
+def get_n_order_neurons(neu_list, connections, order, merge):
+    # print(neu_list)
+    if merge:
+        neu_list = get_connections(neu_list)
+    # print(neu_list)
+    current_ids = set(neu_list['root_id'])
+    visited = set(neu_list['root_id'])
+
+    if order == 3:
+        connections = connections[connections['syn_count'] >= 5]
 
     for i in range(order-1):
-        pre_neu_list = connections[connections['pre_root_id'].isin(current_set)]
-        post_neu_list = set(connections[pre_neu_list['post_root_id']])
-        if len(post_neu_list) > 0:
-            for neu in post_neu_list:
-                visited += neu
-        current_set = post_neu_list
-    return visited
-
+        pre_neu_list = connections[connections['pre_root_id'].isin(current_ids)]
+        # print("len of pre_neu_list:", len(pre_neu_list))
+        post_neu_list = set(pre_neu_list['post_root_id'])
+        # print("len of post_neu_list:", len(post_neu_list))
+        
+        post_neu_list -= visited
+        visited.update(post_neu_list)
+        current_ids = post_neu_list
+        # print(len(visited))
+        # print(len(current_ids))
+    return current_ids
 
 # Gr5a (Sweet sensing)
 sweet_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "sugar/water")]
