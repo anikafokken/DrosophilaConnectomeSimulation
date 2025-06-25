@@ -128,21 +128,30 @@ find_print_total_neurons(sweet_GRN_list, "sweet", True)
 print(get_n_order_neurons(sweet_GRN_list, connections, 2))
 
 bitter_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "bitter")]
-find_print_total_neurons(bitter_GRN_list, "bitter", True)
+find_print_total_neurons(bitter_GRNs, "bitter", True)
+print(f"2nd order neurons: {len(get_n_order_neurons(bitter_GRNs, connections, 2, True))}")
+print(f"3rd order neurons: {len(get_n_order_neurons(bitter_GRNs, connections, 3, True))}")
+
 
 # Ir76b (Protein sensing)
 salty_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "low-salt")]
-find_print_total_neurons(salty_GRN_list, "salty", True)
+find_print_total_neurons(lowsalt_GRNs, "salty", True)
+print(f"2nd order neurons: {len(get_n_order_neurons(lowsalt_GRNs, connections, 2, True))}")
+print(f"3rd order neurons: {len(get_n_order_neurons(lowsalt_GRNs, connections, 3, True))}")
+find_print_total_neurons(water_GRNs, "water", True)
+print(f"2nd order neurons: {len(get_n_order_neurons(water_GRNs, connections, 2, True))}")
+print(f"3rd order neurons: {len(get_n_order_neurons(water_GRNs, connections, 3, True))}")
 
 
-# Serotonergic neurons
-serotonergic_neurons = connections[connections["nt_type"] == "SER"]
-find_print_total_neurons(serotonergic_neurons, "serotonine", False)
+# # Serotonergic neurons
+# serotonergic_neurons = connections[connections["nt_type"] == "SER"]
+# find_print_total_neurons(serotonergic_neurons, "serotonine", False)
+# print(f"2nd order neurons: {len(get_n_order_neurons(serotonergic_neurons, connections, 2, False))}")
 
-
-# Dopaminergic neurons
-dopaminergic_neurons = connections[connections["nt_type"] == "DA"]
-find_print_total_neurons(dopaminergic_neurons, "dopamine", False)
+# # Dopaminergic neurons
+# dopaminergic_neurons = connections[connections["nt_type"] == "DA"]
+# find_print_total_neurons(dopaminergic_neurons, "dopamine", False)
+# print(f"2nd order neurons: {len(get_n_order_neurons(dopaminergic_neurons, connections, 2, False))}")
 
 
 # Ir94e neurons
