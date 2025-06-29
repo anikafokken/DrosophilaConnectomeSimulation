@@ -155,10 +155,11 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste):
         next_ids -= visited
         visited.update(next_ids)
         current_ids = next_ids
-
+    
     return current_ids
 
 def get_df_ids_length(df):
+    return len(df["root_id"])
 
 # Finds the total shared neurons between all four gustatory senses (sugar, water, bitter, salt) for a given order
 def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
@@ -191,58 +192,41 @@ def find_nt_percentages(neu_df):
     ACH = len(get_by_nt(neu_df, "ACH")['root_id'])
     print(f"GLUT: {round(GLUT/len(neu_df['root_id'])*100, 2)}%\nGABA: {round(GABA/len(neu_df['root_id'])*100, 2)}%\nACH: {round(ACH/len(neu_df['root_id'])*100, 2)}%")
 
+def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, merge=True):
+    dfs = {
+        "sugar": neu_df1,
+        "bitter": neu_df2,
+        "salty": neu_df3,
+        "water": neu_df4
+    }
+    for taste in dfs:
+
+        if merge:
+            combined_neuron_list = get_connections(dfs[taste])
+        else:
+            combined_neuron_list = dfs[taste]
+
+        neurons_count = len(combined_neuron_list["pre_root_id"].unique())
+        upstream = find_total_upstream_neurons(combined_neuron_list, connections)
+        downstream = find_total_downstream_neurons(combined_neuron_list, connections)
+        combined_unique_neurons = get_total_neurons(combined_neuron_list)
+        
+        print(f"\n\nNumber of {taste} neurons = {neurons_count}")
+        print("Upstream neurons: ", len(upstream) - neurons_count)
+        print("Downstream neurons: ", len(downstream) - neurons_count)
+        print(f"Total {taste}-associated neurons: {len(combined_unique_neurons)}")
+        print(f"2nd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 2, True, taste))}")
+        print(f"3rd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 3, True, taste))}")
+        find_nt_percentages(get_connections(dfs[taste]))
+
+    total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 2)
+    total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 3)
 
 
 # Finding total shared order neurons
 
-total_shared_order_neurons(sugar_GRNs, water_GRNs, bitter_GRNs, lowsalt_GRNs, connections, 2)
-total_shared_order_neurons(sugar_GRNs, water_GRNs, bitter_GRNs, lowsalt_GRNs, connections, 3)
+composite_report(sugar_GRNs, bitter_GRNs, lowsalt_GRNs, water_GRNs)
 
-
-# Finding total neurons of individual senses
-
-# Gr5a (Sweet sensing)
-sweet_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "sugar/water")]
-find_print_total_neurons(sweet_GRN_list, "sweet", True)
-# print(get_n_order_neurons(sweet_GRN_list, connections, 2, True))
-print(f"2nd order neurons: {len(get_n_order_neurons(sugar_GRNs, connections, 2, True, "sugar"))}")
-print(f"3rd order neurons: {len(get_n_order_neurons(sugar_GRNs, connections, 3, True, "sugar"))}")
-
-
-bitter_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "bitter")]
-find_print_total_neurons(bitter_GRNs, "bitter", True)
-print(f"2nd order neurons: {len(get_n_order_neurons(bitter_GRNs, connections, 2, True, "bitter"))}")
-print(f"3rd order neurons: {len(get_n_order_neurons(bitter_GRNs, connections, 3, True, "bitter"))}")
-
-
-# Ir76b/Ir94e (Protein sensing/"umami")
-salty_GRN_list = classifications[(classifications["class"] == "gustatory") & (classifications["flow"] != "intrinsic") & (classifications["sub_class"] == "low-salt")]
-find_print_total_neurons(lowsalt_GRNs, "salty", True)
-print(f"2nd order neurons: {len(get_n_order_neurons(lowsalt_GRNs, connections, 2, True, "ir94e"))}")
-print(f"3rd order neurons: {len(get_n_order_neurons(lowsalt_GRNs, connections, 3, True, "ir94e"))}")
-
-
-find_print_total_neurons(water_GRNs, "water", True)
-print(f"2nd order neurons: {len(get_n_order_neurons(water_GRNs, connections, 2, True, "water"))}")
-print(f"3rd order neurons: {len(get_n_order_neurons(water_GRNs, connections, 3, True, "water"))}")
-
-
-
-# # Serotonergic neurons
-# serotonergic_neurons = connections[connections["nt_type"] == "SER"]
-# find_print_total_neurons(serotonergic_neurons, "serotonine", False)
-# print(f"2nd order neurons: {len(get_n_order_neurons(serotonergic_neurons, connections, 2, False))}")
-
-# # Dopaminergic neurons
-# dopaminergic_neurons = connections[connections["nt_type"] == "DA"]
-# find_print_total_neurons(dopaminergic_neurons, "dopamine", False)
-# print(f"2nd order neurons: {len(get_n_order_neurons(dopaminergic_neurons, connections, 2, False))}")
-
-
-# Ir94e neurons
-ir94e_neurons = labels[labels["label"].str.contains("Ir94e")]
-# print(f"\n\nTotal shared nodes between Gr5a and Ir94e (including upstream/downstream nodes): {len(find_shared_nodes(sweet_GRN_list, ir94e_neurons, True, True))}")
-# print(f"Shared neurons between Gr5a and Ir94e: {len(list(set(sweet_GRN_list) & set(ir94e_neurons)))}")
 
 
 # Conclusion:
