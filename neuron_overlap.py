@@ -158,6 +158,8 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste):
 
     return current_ids
 
+def get_df_ids_length(df):
+
 # Finds the total shared neurons between all four gustatory senses (sugar, water, bitter, salt) for a given order
 def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
     # Build n_order neurons dictionary
@@ -179,6 +181,15 @@ def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
             # Finds shared neurons for each combo of tastes' neuron lists
             shared = set.intersection(*[n_order_neurons[taste] for taste in combo])
             print(f"{list(combo)} → {len(shared)} neurons shared")
+
+def get_by_nt(neu_df, nt):
+    return neu_df[neu_df['nt_type'] == nt]
+
+def find_nt_percentages(neu_df):
+    GLUT = len(get_by_nt(neu_df, "GLUT")['root_id'])
+    GABA = len(get_by_nt(neu_df, "GABA")['root_id'])
+    ACH = len(get_by_nt(neu_df, "ACH")['root_id'])
+    print(f"GLUT: {round(GLUT/len(neu_df['root_id'])*100, 2)}%\nGABA: {round(GABA/len(neu_df['root_id'])*100, 2)}%\nACH: {round(ACH/len(neu_df['root_id'])*100, 2)}%")
 
 
 
