@@ -1,12 +1,14 @@
 # Package imports
+from matplotlib.colors import ListedColormap
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import combinations
+from venn import venn
 
 # DataFrame variables
-classifications = pd.read_csv("database\\classification_630.csv") # change this back sometime
-connections = pd.read_csv("database\\connections_630.csv")
+classifications = pd.read_csv("database\\classification.csv") # change this back sometime
+connections = pd.read_csv("database\\connections_630.csv") # version 630
 connections = connections[connections["syn_count"] >= 5]
 labels = pd.read_csv("database\\labels.csv")
 
@@ -33,63 +35,42 @@ tastes_2Ns = {
 # Function definitions
 
 # Finds total upstream neurons without considering order
-def find_total_upstream_neurons(neuron_df, connections):
+def find_total_upstream_neurons(combined_neuron_df, connections):
     # Define a 'visited' and 'frontier' list to keep track of upstream neurons that are already accounted for
-    visited = set(neuron_df["post_root_id"])
-    frontier = set(neuron_df["post_root_id"])
+    visited = set(combined_neuron_df["post_root_id"])
+    frontier = set(combined_neuron_df["post_root_id"])
     while len(frontier) > 0:
         new_neurons = set()
         # Where the post root ID is the same as the post root ID from the input neuron list
         new_connections = connections[connections["post_root_id"].isin(frontier)]
         # Find the pre root IDs of the post root IDs (the roots upstream of each ID in the input list)
         upstream_neurons = set(new_connections["pre_root_id"])
-        if new_neurons == 0:
+        new_neurons = upstream_neurons - visited
+        if len(new_neurons) == 0:
             break  
-        for n in upstream_neurons:
-            if n not in visited:
-                new_neurons.add(n) 
         # Add the new neurons of this loop into the visited list
         visited.update(new_neurons)
         frontier = new_neurons
     return list(visited)
 
 # Finds total downstream neurons without considering order
-def find_total_downstream_neurons(neuron_df, connections):
+def find_total_downstream_neurons(combined_neuron_df, connections):
     # Define a 'visited' and 'frontier' list to keep track of downstream neurons that are already accounted for
-    visited = set(neuron_df["pre_root_id"])
-    frontier = set(neuron_df["pre_root_id"])
+    visited = set(combined_neuron_df["pre_root_id"])
+    frontier = set(combined_neuron_df["pre_root_id"])
     while len(frontier) > 0:
         new_neurons = set()
         # Where the pre root ID is the same as the pre root ID from the input neuron list
         new_connections = connections[connections["pre_root_id"].isin(frontier)]
         # Find the post root IDs of the pre root IDs (the roots downstream of each ID in the input list)
         downstream_neurons = set(new_connections["post_root_id"])
-        if new_neurons == 0:
-            break  
-        for n in downstream_neurons:
-            if n not in visited:
-                new_neurons.add(n)
+        new_neurons = downstream_neurons - visited
+        if len(new_neurons) == 0:
+            break
         # Add the new neurons of this loop into the visited list
         visited.update(new_neurons)
         frontier = new_neurons
-    return list(visited)
-
-# Finds the total neurons, including upstream and downstream neurons but doesn't account for order (probably won't use)
-def find_print_total_neurons(neuron_list, characteristic, merge):
-    if merge:
-        combined_neuron_list = get_connections(neuron_list)
-    else:
-        combined_neuron_list = neuron_list
-    neurons_count = len(combined_neuron_list["pre_root_id"].unique())
-    upstream = find_total_upstream_neurons(combined_neuron_list, connections)
-    downstream = find_total_downstream_neurons(combined_neuron_list, connections)
-    combined_unique_neurons = get_total_neurons(combined_neuron_list)
-    
-    print(f"\n\nNumber of {characteristic} neurons = {neurons_count}")
-    print("upstream neurons: ", len(upstream) - neurons_count)
-    print("downstream neurons: ", len(downstream) - neurons_count)
-    print(f"Total {characteristic}-associated neurons: {len(combined_unique_neurons)}")
-    
+    return list(visited)   
 
 # Merges a list of GRNs with a connections CSV to grab pre root IDs that are equivalent to the root IDs from the input list
 def get_connections(neuron_list):
@@ -125,6 +106,19 @@ def find_shared_nodes(neuron_list1, neuron_list2, merge1, merge2, order):
 
 # Finds all neurons of a given order (2 or 3)
 def get_n_order_neurons(neu_list, connections, order, merge, taste):
+    sub_class_terms = {
+                "sugar": "sugar/water",
+                "bitter": "bitter",
+                "salty": "low-salt",
+                "water": "sugar/water"
+            }
+    twoNs_dfs = {
+                "sugar": sugar_2Ns,
+                "bitter": bitter_2Ns,
+                "salty": lowsalt_2Ns,
+                "water": water_2Ns
+            }
+    
     # Apply synapse threshold (5 for 2Ns, 10 for 3Ns)
     if order == 2:
         connections = connections[connections['syn_count'] >= 5]
@@ -145,11 +139,27 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste):
         next_ids = set(current_conns['post_root_id'])
 
         # Optional: filter out GRNs or 2Ns of the same modality **only on last step and for finding 3Ns**
-        if i == (order-2):
-            # Get GRNs (gustatory + same taste type)
-            grn_filter = (classifications["class"] == "gustatory") & (classifications["sub_class"] == taste)
+        if i == (order-3) and order == 2:
+            grn_filter = (classifications["class"] == "gustatory")
             grn_ids = set(classifications[grn_filter]["root_id"])
             next_ids -= grn_ids
+
+        if i == (order-2) and order == 3:
+            
+            # Get GRNs (gustatory + same taste type)
+            if sub_class_terms[taste] == "sugar/water":
+                grn_filter = (classifications["class"] == "gustatory")
+            else:
+                grn_filter = (
+                    (classifications["class"] == "gustatory") |
+                    (classifications["root_id"].isin(twoNs_dfs[taste])) # TODO: is this the problem? they filter by no GRNS of any modality, and no 2Ns of the same modality; issue is likely ir94e
+                )
+            grn_ids = set(classifications[grn_filter]["root_id"])
+            next_ids -= grn_ids
+            print("Taste:", taste)
+            print("Sub_class term:", sub_class_terms[taste])
+            print("Unique sub_class:", classifications["sub_class"].unique())
+            print("GRN match count:", ((classifications["class"] == "gustatory") & (classifications["sub_class"] == sub_class_terms[taste])).sum())
 
         # Remove already visited; set the current IDs to the ones discovered in this loop, so they can be explored for 3Ns if applicable
         next_ids -= visited
@@ -168,7 +178,7 @@ def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
         "sweet": get_n_order_neurons(sugar, connections, order, True, "sugar"),
         "water": get_n_order_neurons(water, connections, order, True, "water"),
         "bitter": get_n_order_neurons(bitter, connections, order, True, "bitter"),
-        "ir94e": get_n_order_neurons(salt, connections, order, True, "ir94e")
+        "ir94e": get_n_order_neurons(salt, connections, order, True, "salty")
     }
 
     print(f"\n{order} Order Neuron Counts:")
@@ -223,11 +233,28 @@ def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, merge=True):
     total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 3)
 
 
+
+
 # Finding total shared order neurons
 
 composite_report(sugar_GRNs, bitter_GRNs, lowsalt_GRNs, water_GRNs)
 
+sugar_list = {'{}'.format(value) for value in sugar_2Ns.unique()}
+sugar_dict = {'Sugar 2Ns': sugar_2Ns}
 
+water_list = {'{}'.format(value) for value in water_2Ns.unique()}
+water_dict = {'Water 2Ns': water_2Ns}
+
+bitter_list = {'{}'.format(value) for value in bitter_2Ns.unique()}
+bitter_dict = {'Bitter 2Ns': bitter_2Ns}
+
+lowsalt_list = {'{}'.format(value) for value in lowsalt_2Ns.unique()}
+lowsalt_dict = {'IR94e 2Ns': lowsalt_2Ns}
+
+colors = ('#cf4848','orange','#3489eb','purple')
+crossover = {**sugar_dict, **water_dict, **bitter_dict, **lowsalt_dict}
+venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
+plt.show()
 
 # Conclusion:
 
