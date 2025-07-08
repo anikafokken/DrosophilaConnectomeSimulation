@@ -23,6 +23,11 @@ water_2Ns = pd.read_csv("output_csvs\\water_2Ns.csv")['root_id']
 bitter_2Ns = pd.read_csv("output_csvs\\bitter_2Ns.csv")['root_id']
 lowsalt_2Ns = pd.read_csv("output_csvs\\lowsalt_2Ns.csv")['root_id']
 
+sugar_3Ns = pd.read_csv("output_csvs\\sugar_3Ns.csv")['root_id']
+water_3Ns = pd.read_csv("output_csvs\\water_3Ns.csv")['root_id']
+bitter_3Ns = pd.read_csv("output_csvs\\bitter_3Ns.csv")['root_id']
+lowsalt_3Ns = pd.read_csv("output_csvs\\lowsalt_3Ns.csv")['root_id']
+
 tastes_2Ns = {
     "sugar": sugar_2Ns,
     "water": water_2Ns,
@@ -105,17 +110,17 @@ def find_shared_nodes(neuron_list1, neuron_list2, merge1, merge2, order):
 
 
 # Finds all neurons of a given order (2 or 3)
-def get_n_order_neurons(neu_list, connections, order, merge, taste):
+def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on):
     sub_class_terms = {
                 "sugar": "sugar/water",
                 "bitter": "bitter",
-                "salty": "low-salt",
+                "ir94e": "low-salt",
                 "water": "sugar/water"
             }
     twoNs_dfs = {
                 "sugar": sugar_2Ns,
                 "bitter": bitter_2Ns,
-                "salty": lowsalt_2Ns,
+                "ir94e": lowsalt_2Ns,
                 "water": water_2Ns
             }
     
@@ -134,32 +139,20 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste):
     visited = set(current_ids)
 
     for i in range(order-1):
-        # Where the pre root ID is the same as the root ID from the input neuron list
+    #     # Where the pre root ID is the same as the root ID from the input neuron list
         current_conns = connections[connections['pre_root_id'].isin(current_ids)]
         next_ids = set(current_conns['post_root_id'])
 
-        # Optional: filter out GRNs or 2Ns of the same modality **only on last step and for finding 3Ns**
-        if i == (order-3) and order == 2:
-            grn_filter = (classifications["class"] == "gustatory")
-            grn_ids = set(classifications[grn_filter]["root_id"])
-            next_ids -= grn_ids
-
-        if i == (order-2) and order == 3:
-            
-            # Get GRNs (gustatory + same taste type)
-            if sub_class_terms[taste] == "sugar/water":
-                grn_filter = (classifications["class"] == "gustatory")
-            else:
+        if filtering_on:
+            if i == (order-2) and order == 3:
+                
+                # Get GRNs (gustatory + same taste type)
                 grn_filter = (
                     (classifications["class"] == "gustatory") |
                     (classifications["root_id"].isin(twoNs_dfs[taste])) # TODO: is this the problem? they filter by no GRNS of any modality, and no 2Ns of the same modality; issue is likely ir94e
                 )
-            grn_ids = set(classifications[grn_filter]["root_id"])
-            next_ids -= grn_ids
-            print("Taste:", taste)
-            print("Sub_class term:", sub_class_terms[taste])
-            print("Unique sub_class:", classifications["sub_class"].unique())
-            print("GRN match count:", ((classifications["class"] == "gustatory") & (classifications["sub_class"] == sub_class_terms[taste])).sum())
+                grn_ids = set(classifications[grn_filter]["root_id"])
+                next_ids -= grn_ids
 
         # Remove already visited; set the current IDs to the ones discovered in this loop, so they can be explored for 3Ns if applicable
         next_ids -= visited
@@ -168,30 +161,23 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste):
     
     return current_ids
 
+
 def get_df_ids_length(df):
     return len(df["root_id"])
 
-# Finds the total shared neurons between all four gustatory senses (sugar, water, bitter, salt) for a given order
 def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
-    # Build n_order neurons dictionary
-    n_order_neurons = {
-        "sweet": get_n_order_neurons(sugar, connections, order, True, "sugar"),
+    second_order = {
+        "sugar": get_n_order_neurons(sugar, connections, order, True, "sugar"),
         "water": get_n_order_neurons(water, connections, order, True, "water"),
         "bitter": get_n_order_neurons(bitter, connections, order, True, "bitter"),
-        "ir94e": get_n_order_neurons(salt, connections, order, True, "salty")
+        "ir94e": get_n_order_neurons(salt, connections, order, True, "ir94e")
     }
 
-    print(f"\n{order} Order Neuron Counts:")
-    for taste, neurons in n_order_neurons.items(): # Print the get_n_order_neurons() results for each taste (each item in n_order_neurons dictionary)
-        print(f"{taste}: {len(neurons)}")
-
-    print(f"\nShared {order} Order Neurons:")
-    for r in range(2, 5):  
-        # Finds pairwise, 3-wise, 4-wise overlaps of each taste to exhaust all combinations between tastes
-        for combo in combinations(n_order_neurons.keys(), r):
-            # Finds shared neurons for each combo of tastes' neuron lists
-            shared = set.intersection(*[n_order_neurons[taste] for taste in combo])
-            print(f"{list(combo)} → {len(shared)} neurons shared")
+    for r in range(2, 5):  # combinations of size 2 to 4
+        for combo in combinations(second_order.keys(), r):
+            # print(set(second_order[combo[0]]) & set(second_order[combo[1]]))
+            shared_neurons = set.intersection(*[second_order[name] for name in combo])
+            print(f"Total shared neurons in {list(combo)}: {len(shared_neurons)}")
 
 def get_by_nt(neu_df, nt):
     return neu_df[neu_df['nt_type'] == nt]
@@ -202,11 +188,11 @@ def find_nt_percentages(neu_df):
     ACH = len(get_by_nt(neu_df, "ACH")['root_id'])
     print(f"GLUT: {round(GLUT/len(neu_df['root_id'])*100, 2)}%\nGABA: {round(GABA/len(neu_df['root_id'])*100, 2)}%\nACH: {round(ACH/len(neu_df['root_id'])*100, 2)}%")
 
-def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, merge=True):
+def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, merge=True, filtering_on=True):
     dfs = {
         "sugar": neu_df1,
         "bitter": neu_df2,
-        "salty": neu_df3,
+        "ir94e": neu_df3,
         "water": neu_df4
     }
     for taste in dfs:
@@ -225,38 +211,37 @@ def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, merge=True):
         print("Upstream neurons: ", len(upstream) - neurons_count)
         print("Downstream neurons: ", len(downstream) - neurons_count)
         print(f"Total {taste}-associated neurons: {len(combined_unique_neurons)}")
-        print(f"2nd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 2, True, taste))}")
-        print(f"3rd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 3, True, taste))}")
+        print(f"2nd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 2, True, taste, filtering_on))}")
+        print(f"3rd order neurons: {len(get_n_order_neurons(dfs[taste], connections, 3, True, taste, filtering_on))}")
         find_nt_percentages(get_connections(dfs[taste]))
 
     total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 2)
     total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 3)
 
 
+# Error checking
+def find_discrepancies(my_neu_list, threeNs_list, classifications):
+    sugar_3Ns = pd.DataFrame(threeNs_list, columns=['root_id'])
+    paper_classifications = pd.merge(sugar_3Ns, classifications, left_on='root_id', right_on='root_id', how='inner')
+    print(f"Paper classifications: {paper_classifications}")
+    my_sugar_3Ns = pd.DataFrame(list(get_n_order_neurons(sugar_GRNs, connections, 3, True, "sugar")), columns=['root_id'])
+    print("My classifications: ", pd.merge(my_sugar_3Ns, classifications, on='root_id'))
+    my_sugar_3Ns = my_neu_list
+    my_sugar_3Ns = set(my_sugar_3Ns['root_id'])
+    sugar_3Ns = set(sugar_3Ns['root_id'])
+    not_shared = pd.DataFrame(sugar_3Ns ^ my_sugar_3Ns, columns=['root_id'])
+    not_shared_classifications = pd.merge(not_shared, classifications, left_on='root_id', right_on='root_id', how='inner')
+    # print(sugar_3Ns ^ my_sugar_3Ns)
+    print(not_shared_classifications)
 
 
-# Finding total shared order neurons
 
-composite_report(sugar_GRNs, bitter_GRNs, lowsalt_GRNs, water_GRNs)
+composite_report(sugar_GRNs, water_GRNs, bitter_GRNs, lowsalt_GRNs, True, filtering_on=True)
 
-sugar_list = {'{}'.format(value) for value in sugar_2Ns.unique()}
-sugar_dict = {'Sugar 2Ns': sugar_2Ns}
 
-water_list = {'{}'.format(value) for value in water_2Ns.unique()}
-water_dict = {'Water 2Ns': water_2Ns}
+# Conclusion (3Ns)
 
-bitter_list = {'{}'.format(value) for value in bitter_2Ns.unique()}
-bitter_dict = {'Bitter 2Ns': bitter_2Ns}
+# Theirs: bitter 395, ir94e 221, sugar 514, water 323
+# Ours without filtering: 412, 241, 550, 346 (average difference of +24)
 
-lowsalt_list = {'{}'.format(value) for value in lowsalt_2Ns.unique()}
-lowsalt_dict = {'IR94e 2Ns': lowsalt_2Ns}
-
-colors = ('#cf4848','orange','#3489eb','purple')
-crossover = {**sugar_dict, **water_dict, **bitter_dict, **lowsalt_dict}
-venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
-plt.show()
-
-# Conclusion:
-
-# bitter 395, lowsalt 221, sugar 514, water 323
-# Ours: 412, 241, 550, 346 (average difference of +24)
+# Ours with filtering: 343, 194, 461, 297
