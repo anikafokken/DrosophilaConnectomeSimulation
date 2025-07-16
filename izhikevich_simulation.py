@@ -1,6 +1,8 @@
 from brian2 import *
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import itertools
 
 start_scope()
 
@@ -15,20 +17,23 @@ bitter_2Ns = pd.read_csv("output_csvs/bitter_2Ns.csv")
 lowsalt_2Ns = pd.read_csv("output_csvs/lowsalt_2Ns.csv")
 water_2Ns = pd.read_csv("output_csvs/water_2Ns.csv")
 
+total_idxs = 0
+previous_idxs = 0
+
+def get_root_id_to_index(neu_array, start_idx):
+    mapping = { rid: idx for idx, rid in enumerate(neu_array, start=start_idx)}
+    return mapping
+
 print("done")
 unique_neurons = pd.unique(df_conn[['pre_root_id', 'post_root_id']].values.ravel())
 unique_sugar_neurons = unique_neurons[np.isin(unique_neurons, sugar_GRNs['root_id'].values)]
 print("Printing unique_sugar_neurons*********************")
 print(unique_sugar_neurons)
 
-def get_root_id_to_index(neu_array):
-    root_id_to_index = { rid: idx for idx, rid in enumerate(neu_array)}
-    return root_id_to_index
-
-root_id_to_index = get_root_id_to_index(sugar_GRNs['root_id'])
 print("done")
+
 # Define parameters
-trial_num = len(root_id_to_index)
+trial_num = len(sugar_GRNs['root_id'])
 a = 0.02/ms # time scale of recovery variable u
 b = 0.2/second # sensitivity of u to v
 c = -65*mV # after-spike reset of v
@@ -47,59 +52,93 @@ p : 1
 
 # Define spiking behavior
 
-def create_model(conn):
+def update_index_map(neu_array, root_id_to_index):
+    global total_idxs
+    print(total_idxs)
+    layer_x_map = get_root_id_to_index(neu_array, total_idxs)
+    print(f"adding {len(layer_x_map.items())} more neurons")
+    print(f"layer map: {layer_x_map}")
+    root_id_to_index.update(layer_x_map)
+    total_idxs += len(layer_x_map.keys())
+    print(total_idxs)
 
-    # Work with NeuronGroups
-    # G = NeuronGroup(trial_num, eqs, 
-    #                 threshold='v>=v_thresh', 
-    #                 reset='''
-    #                 v = c
-    #                 u += d
-    #                 ''',
-    #                 method=euler)
+# def update_synapse_idx(neu_array, root_id_to_layer_local):
+#     layer_x_map = {
+#         rid: (layer_idx, local_idx) for rid, layer_idx, local_idx in root_id_to_layer_local
+#     }
+#     root_id_to_layer_local.update(layer_x_map)
+    
+
+def create_model(conn):
+    previous_idxs = 0
+
+    
+
+    root_id_to_index = {}
+    root_id_to_layer_local = {}
 
     sugar_GRN_IDs = sugar_GRNs['root_id']
     print("Printing sugar_GRN_IDs**********************")
     print(sugar_GRN_IDs)
-    root_id_to_index = {rid: idx for idx, rid in enumerate(sugar_GRN_IDs)}
 
-    sugar_G = NeuronGroup(len(sugar_GRN_IDs), eqs, threshold='rand() < p', reset='v=-65*mV', method='euler')
-    PoissonInput(target=sugar_G, target_var='v', N=len(sugar_G), rate=20*Hz, weight=0.2*mV)
-    root_id_to_local_index_previous = {rid: idx for idx, rid in enumerate(sugar_GRN_IDs)}
+    sugar_G = NeuronGroup(len(sugar_GRN_IDs), 
+                          eqs, 
+                          threshold='v >= v_thresh', 
+                          reset='''
+                            v = c
+                            u += d
+                          ''', 
+                          method='rk4')
+    # PoissonInput(target=sugar_G, target_var='v', N=len(sugar_G), rate=20*Hz, weight=0.2*mV)
+    print("adding sugar GRNs")
+    update_index_map(sugar_GRNs['root_id'], root_id_to_index)
+    print(root_id_to_index)
+    previous_idxs += len(sugar_GRN_IDs)
+
 
     
     previous_order_root_ids = set(sugar_GRNs['root_id'])
     layer_Gs = [sugar_G]
     synapses_list = []
-    for i in range(orders-2):
-        next_order_root_ids = get_n_order_neurons(sugar_GRN_IDs, conn, i+2, merge=True, taste="sugar", filtering_on=True)
-        root_id_to_local_index_next = {rid: idx for idx, rid in enumerate(list(next_order_root_ids))}
+    for i in range(1):
+
+        next_order_root_ids = get_n_order_neurons(sugar_GRN_IDs, df_conn, 2, True, "sugar", True)
+        print(f"sugar GRNs: {sugar_GRN_IDs}")
+        print(f"next order GRNs: {next_order_root_ids}")
+        print(f"adding next order ids for {i} order")
+        print(f"length of next order ids: {len(next_order_root_ids)}")
+
+        layer_idx = 0
 
         # print(previous_order_root_ids)
         # print(next_order_root_ids)
-        root_id_to_index.update({rid: idx for idx, rid in enumerate(next_order_root_ids, start=len(root_id_to_index))})
+        print(len(root_id_to_index))
+
         next_order_G = NeuronGroup(
-            len(get_n_order_neurons(sugar_GRN_IDs,
-            conn, 
-            i+2, 
-            merge=True, 
-            taste="sugar", 
-            filtering_on=True)),
-              eqs,
-              threshold='rand() < p', 
-              reset='v=-65*mV', 
-              method='euler')
+            len(next_order_root_ids),
+            eqs,
+            threshold='v >= v_thresh', 
+            reset='''
+            v = c
+            u += d
+            ''', 
+            method='euler')
         
+        update_index_map(next_order_root_ids, root_id_to_index)
+
+
+        print(previous_order_root_ids)
+        print(next_order_root_ids)
         edges = conn[
             (conn['pre_root_id'].isin(previous_order_root_ids)) &
             (conn['post_root_id'].isin(next_order_root_ids))
         ]
 
-        print(conn['pre_root_id'].dtype)
-        print(conn['pre_root_id'].dtype)
-        print(type(previous_order_root_ids))
-        print(type(next_order_root_ids))
-        print(edges[['pre_root_id', 'post_root_id']].head())
+    #    print(conn['pre_root_id'].dtype)
+    #     print(conn['pre_root_id'].dtype)
+    #     print(type(previous_order_root_ids))
+    #     print(type(next_order_root_ids))
+    #     print(edges[['pre_root_id', 'post_root_id']].head()) 
         
 
         # next_order_G = NeuronGroup(len(next_order_root_ids), eqs, threshold='rand() < p', reset='v=-65*mV', method='euler')
@@ -107,13 +146,86 @@ def create_model(conn):
         syn = Synapses(layer_Gs[i], layer_Gs[i+1], 
                        model='w : volt',
                        on_pre='v_post += w')
+        print(len(layer_Gs[i]), layer_Gs[i+1])
         
         synapses_list.append(syn)
 
-        pre_indices = np.array([int(root_id_to_local_index_previous[rid]) for rid in edges['pre_root_id']], dtype=int)
-        post_indices = np.array([int(root_id_to_local_index_next[rid]) for rid in edges['post_root_id']], dtype=int)
-        print(pre_indices)
-        print(post_indices)
+        all_layers = [sugar_GRN_IDs, next_order_root_ids]
+
+        layer_offsets = []
+        offset = 0
+        for layer_neuron_ids in all_layers:
+            layer_offsets.append(offset)
+            offset += len(layer_neuron_ids)
+
+        # pre_group = layer_Gs[i]
+        # print(pre_group)
+        # post_group = layer_Gs[i+1]
+        # print(post_group)
+
+        # N = len(root_id_to_index)
+        # print(N)
+        # post_size = len(post_group)
+        # cutoff = N - post_size
+
+        # post_indices_global = np.array([int(root_id_to_index[rid]) for rid in edges['post_root_id']], dtype=int)
+
+
+        # mask = post_indices_global >= cutoff
+        
+        # filtered_edges = edges[mask].reset_index(drop=True)
+        # print(filtered_edges)
+        # print(f"Indexes before pre and post initialization: {root_id_to_index}")
+        # filtered_pre_subset = filtered_edges['pre_root_id'].map(root_id_to_index)
+        # filtered_post_subset = filtered_edges['post_root_id'].map(root_id_to_index)
+        
+        # print(filtered_pre_subset)
+
+        # pre_indices_global = np.array(filtered_pre_subset.tolist())
+
+        # pre_indices = []
+        # post_indices = []
+        # for rid in sugar_GRN_IDs:
+        #     pre_indices.append(root_id_to_index[rid])
+        # for rid in next_order_root_ids:
+        #     post_indices.append(root_id_to_index[rid])
+
+        # print(pre_indices)
+        # print(post_indices)
+
+        pre_offset = layer_offsets[0]  # where source layer starts globally
+        post_offset = layer_offsets[1]  # where target layer starts globally
+
+        pre_indices_global = [root_id_to_index[rid] for rid in edges['pre_root_id']]
+        post_indices_global = [root_id_to_index[rid] for rid in edges['post_root_id']]
+
+        # Map back to local:
+        pre_indices_local = [g - pre_offset for g in pre_indices_global]
+        post_indices_local = [g - post_offset for g in post_indices_global]
+
+        # print(pre_indices_global)
+        # post_indices_global = np.array(filtered_post_subset.tolist())
+        # print(post_indices_global)
+        # filtered_post_root_ids = edges['post_root_id'][mask].reset_index(drop=True).to_numpy()
+
+        # pre_start = N - len(pre_group) - len(pre_group)
+        # post_start = N - len(post_group)
+
+        print(f"Printing indicies: ")
+        # pre_indices_local = pre_indices_global
+        # # print(pre_indices)
+        # post_indices_local = post_indices_global - post_start
+        print(pre_indices_local)
+        print(post_indices_local)
+
+        # print(f"Pre root:", filtered_pre_root_ids)
+        # print("Post root:", filtered_post_root_ids)
+        # print(type(filtered_post_root_ids))
+
+        print(f"Presynaptic group size: {len(layer_Gs[i])}")
+        print(f"Postsynaptic group size: {len(layer_Gs[i+1])}")
+        # print(f"Max pre index: {pre_indices.max()}")
+        print(f"Max post index: {max(post_indices_local)}")
 
         nt_array = edges['nt_type'].values
 
@@ -127,63 +239,47 @@ def create_model(conn):
                 )
         )
 
+        print(root_id_to_index)
+        print(len(pre_indices_local))
+        print(post_indices_local)
         syn.connect(
-            i=pre_indices, 
-            j=post_indices)
-        syn.w = filtered_weights * mV
+            i=pre_indices_local, 
+            j=post_indices_local)
+        syn.w = 15 * mV
         print("done3.75")
 
         syn.delay = 1*ms # TODO: should this be different based on the neurons
 
-        previous_order_root_ids = next_order_root_ids
-        root_id_to_local_index_previous = root_id_to_local_index_next
+        for syn in synapses_list:
+            print(f"Synapses: {len(syn.i)} connections")
+            print(f"Weights sample: {syn.w[:5]}")
 
-    drive = np.zeros(trial_num) * mV/ms
-    drive[0] = 10 * mV/ms  # Only neuron 0 gets input
+        previous_order_root_ids = next_order_root_ids
+        previous_idxs += len(previous_order_root_ids)
+
 
     print(sugar_G.v.shape)
     print(type(sugar_G.v))
 
     # Intial conditions
-    sugar_G.v = -65*mV
-    sugar_G.u = b * sugar_G.v
+    # sugar_G.v = -65*mV
+    # sugar_G.u = b * sugar_G.v
+    # # G.I = '10 * mV/ms' # constant input
+
+    for G in layer_Gs:
+        G.v = c
+        G.u = b * G.v
+        G.I = 10 * mV/ms
+    
+    layer_Gs[0].I[0] = 200 * mV/ms
+
     # G.I = '10 * mV/ms' # constant input
-    sugar_G.I = drive
-
-
-    # Synapses
-    # S = Synapses(G, G, '''
-    #              w : volt
-    #              ''',
-    #              on_pre='v_post += w')
-    
-    # print("done3.25")
-    # i_indices = conn['pre_root_id'].map(root_id_to_index).values
-    # j_indices = conn['post_root_id'].map(root_id_to_index).values
-
-    # # Connect synapses
-    # S.connect(i=i_indices,
-    #           j=j_indices)
-    # print("done3.5")
-
-    
-
-    # weights = weights * mV
-    
-    # S.w = weights
-    # print("done3.75")
-
-    # S.delay = 1*ms # TODO: should this be different based on the neurons
-
-    # # PoissonGroups TODO: get rid of this?
-    # sweet_stimulus = TimedArray([0, 30]*Hz, dt=500*ms)
-    # sweet_PG = PoissonGroup(len(sugar_GRNs), rates='sweet_stimulus(t)')
 
     # Monitors
     spikemon = SpikeMonitor(sugar_G)
-    sugar_M = StateMonitor(sugar_G, ['v', 'u'], record=True)
+    sugar_M = StateMonitor(sugar_G, 'v', record=True)
 
-    return layer_Gs, synapses_list, spikemon, sugar_M
+    return layer_Gs, synapses_list, spikemon, sugar_M, root_id_to_index
 
 # Finds all neurons of a given order (2 or 3)
 def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on):
@@ -238,35 +334,172 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
     return current_ids
 
 def run_experiment():
-    G, S, spikemon, M = create_model(df_conn)
+    layer_Gs, synapses_list, spikemon, sugar_M, root_id_to_index = create_model(df_conn)
+    print("done3")
     
+    synapse_map = create_neuronal_map(synapses_list, root_id_to_index)
+    print("Synapse map:", synapse_map)
+    pathways = trace_pathways(synapse_map, 0, root_id_to_index)
+    print("Pathways", pathways)
 
-print("done3")
-sugar_G, syn, spikemon, sugar_M = create_model(df_conn)
-net = Network([sugar_G, syn, spikemon, sugar_M])
-print("done3.85")
-net.run(75*ms)
-print("done4")
-# Model synaptic dynamics
-# Implement plasticity rules
-# Specify delays
-# Create a Network object
+    state_monitors = []
+    for g in layer_Gs:
+        M = StateMonitor(g, 'v', record=True)
+        state_monitors.append(M)
 
-# Plot results
-figure(figsize=(12, 6))
+    spike_monitors = []
+    for g in layer_Gs:
+        sm = SpikeMonitor(g, 'v', record=True)
+        spike_monitors.append(sm)
+    
+    print("Layer 1 --> Layer 2: ", synapses_list[0].i)
+    print("Weights: ", synapses_list[0].w)
 
-subplot(2,1,1)
-for i in range(3):
-    plot(sugar_M.t/ms, sugar_M.v[i]/mV, label=f'Neuron {i}')
-xlabel('Time (ms)')
-ylabel('v (mV)')
-title('Membrane potential v')
+    # Testing
+    # print(root_id_to_layer_and_local_idx)
+    layer_idx = 1
 
-# subplot(2,1,2)
-# plot(sugar_M.t/ms, sugar_M.u[0]/(mV/ms))
-# xlabel('Time (ms)')
-# ylabel('u (mV/ms)')
-# title('Recovery variable u')
-# print("done5")
-legend()
-show()
+    rid = get_rid_from_idx(root_id_to_index, 58)
+    print(f"type: {type(rid)}")
+    print(root_id_to_index[rid])
+    local_idx = root_id_to_index[rid]
+
+    print(root_id_to_index[rid])
+    layer_Gs[layer_idx].I[root_id_to_index[rid]] = 500 * mV/ms
+    print(layer_Gs[layer_idx].I[local_idx])
+    
+    net = Network(layer_Gs + synapses_list + spike_monitors + state_monitors)
+    print("done3.85")
+    net.run(300*ms)
+    print("done4")
+    # Model synaptic dynamics
+    # Implement plasticity rules
+    # Specify delays
+    # Create a Network object
+
+    for i, sm in enumerate(spike_monitors):
+        print(f"Layer {i} spikes:", sm.count)
+
+    # Plot results
+    figure(figsize=(12, 12))
+
+    # monitors0to2 = [state_monitors[0], state_monitors[1], state_monitors[2]]
+
+    subplot(2,1,1)
+    # for key in list(pathways)[:3]:
+    layer_idx = 0
+    for neuron_idx in pathways[0]:
+        M = state_monitors[0]
+
+        rid = get_rid_from_idx(root_id_to_index, neuron_idx)
+        local_idx = root_id_to_index[rid]
+        if layer_idx < len(M.v):
+            plt.plot(
+                M.t/ms, 
+                M.v[layer_idx]/mV, 
+                label=f'Path {0} Neuron {neuron_idx} (Neuron: {rid})',
+                alpha=0.7,
+                linewidth=1.0)
+        
+        layer_idx += 1
+    plt.xlabel('Time (ms)')
+    plt.ylabel('v (mV)')
+    plt.title('Membrane potential v')
+
+    # subplot(2,1,2)
+    # plot(sugar_M.t/ms, sugar_M.u[0]/(mV/ms))
+    # xlabel('Time (ms)')
+    # ylabel('u (mV/ms)')
+    # title('Recovery variable u')
+    # print("done5")
+    plt.legend()
+
+def create_neuronal_map(synapses_list, root_id_to_index):
+    print("starting creation")
+    synapse_map = {}
+    for synapse in synapses_list:
+        print(synapse.i, synapse.j)
+        for pre_idx, post_idx in zip(synapse.i, synapse.j):
+            synapse_map[int(pre_idx)] = synapse_map.get(int(pre_idx), []) + [int(post_idx)]
+    print(synapse_map)
+    for num in synapse_map:
+        print(num)
+        print(synapse_map[num][0])
+        print(f"{get_rid_from_idx(root_id_to_index, num)} -> {get_rid_from_idx(root_id_to_index, synapse_map[num][0])}") # get_rid_from_idx works well
+        print(root_id_to_index[get_rid_from_idx(root_id_to_index, num)])
+    return synapse_map
+
+def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=100):
+    print("starting tracing")
+    pathways = {}
+    path_idx = 0
+    stack = [[start_idx]]
+    print("created variables")
+
+    while stack:
+        current_path = stack.pop()
+        last_node = current_path[-1]
+
+        # print("new path: ", current_path, get_rid_from_idx(rid_dict, current_path[0]))
+
+        # print(f"[TRACE] Current path: {current_path}")
+        # print(f"[TRACE] last_node: {last_node}")
+
+        # If you have layer + local idx in path: unpack properly:
+        for layer_idx in range(len(current_path)):
+            # print(current_path)
+            # print(layer_idx)
+            local_idx = current_path[layer_idx]
+            # print(f"[TRACE] layer_idx={layer_idx}, local_idx={local_idx}")
+
+            # 🟢 Add this BEFORE calling get_rid_from_idx:
+            # print(f"[TRACE] About to call get_rid_from_idx with layer_idx={layer_idx}, local_idx={local_idx}")
+        
+        if len(current_path) >= max_depth:
+            pathways[path_idx] = current_path
+            path_idx += 1
+            continue
+        next_nodes = synapse_map.get(last_node, [])
+        
+        if not next_nodes:
+            pathways[path_idx] = current_path
+            path_idx += 1
+        else:
+            for n in next_nodes:
+                if n in current_path:
+                    continue
+                stack.append(current_path + [n])
+        
+        if path_idx >= max_paths:
+            print(f"Stopped early: hit max_paths = {max_paths}")
+            break
+
+        # next_idxs = [synapse_map[current]]
+        # if len(next_idxs) > 1:
+        #     for idx in next_idxs[1:]:
+        #         on_hold.append(idx)
+        # elif len(next_idxs) < 1:
+        #     current = on_hold[0]
+        #     on_hold[0].pop(0)
+
+        # else:
+        #     current = next_idxs[0]
+        #     next_idxs.pop(0)
+    print(pathways)
+    return pathways
+
+def get_rid_from_idx(rid_dict, idx):
+        matches = [key for key, val in rid_dict.items() if (val == idx)]
+        if not matches:
+            print(f" No match for layer_idx={idx}, local_idx={idx} in rid dict!")
+            print(f"Available keys:: {list(rid_dict.items())[:10]}")
+            raise ValueError(f"Cannot find rid for ({idx}, {idx})")
+        return matches[0]    
+    
+run_experiment()   
+
+plt.show()
+        
+
+
+
