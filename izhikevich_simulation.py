@@ -97,15 +97,17 @@ def create_model(conn):
 
 
     
-    previous_order_root_ids = set(sugar_GRNs['root_id'])
+    previous_order_root_ids = sugar_GRN_IDs
     layer_Gs = [sugar_G]
     synapses_list = []
-    for i in range(1):
-
-        next_order_root_ids = get_n_order_neurons(sugar_GRN_IDs, df_conn, 2, True, "sugar", True)
+    all_layers = [sugar_G]
+    for l in range(2):
+        next_order_root_ids = get_n_order_neurons(previous_order_root_ids, df_conn, 2, True, "sugar", True)
+        print(f"type of next order IDs: {type(next_order_root_ids)}")
+        print(f"type of previous IDs: {type(previous_order_root_ids)}")
         print(f"sugar GRNs: {sugar_GRN_IDs}")
         print(f"next order GRNs: {next_order_root_ids}")
-        print(f"adding next order ids for {i} order")
+        print(f"adding next order ids for {l} order")
         print(f"length of next order ids: {len(next_order_root_ids)}")
 
         layer_idx = 0
@@ -143,14 +145,14 @@ def create_model(conn):
 
         # next_order_G = NeuronGroup(len(next_order_root_ids), eqs, threshold='rand() < p', reset='v=-65*mV', method='euler')
         layer_Gs.append(next_order_G)
-        syn = Synapses(layer_Gs[i], layer_Gs[i+1], 
+        syn = Synapses(layer_Gs[l], layer_Gs[l+1], 
                        model='w : volt',
                        on_pre='v_post += w')
-        print(len(layer_Gs[i]), layer_Gs[i+1])
+        print(len(layer_Gs[l]), len(layer_Gs[l+1]))
         
         synapses_list.append(syn)
 
-        all_layers = [sugar_GRN_IDs, next_order_root_ids]
+        all_layers.append(next_order_root_ids)
 
         layer_offsets = []
         offset = 0
@@ -215,15 +217,15 @@ def create_model(conn):
         # pre_indices_local = pre_indices_global
         # # print(pre_indices)
         # post_indices_local = post_indices_global - post_start
-        print(pre_indices_local)
-        print(post_indices_local)
+        print("***Pre:", pre_indices_local)
+        print("***Post:", post_indices_local)
 
         # print(f"Pre root:", filtered_pre_root_ids)
         # print("Post root:", filtered_post_root_ids)
         # print(type(filtered_post_root_ids))
 
-        print(f"Presynaptic group size: {len(layer_Gs[i])}")
-        print(f"Postsynaptic group size: {len(layer_Gs[i+1])}")
+        print(f"Presynaptic group size: {len(layer_Gs[l])}")
+        print(f"Postsynaptic group size: {len(layer_Gs[l+1])}")
         # print(f"Max pre index: {pre_indices.max()}")
         print(f"Max post index: {max(post_indices_local)}")
 
@@ -254,7 +256,7 @@ def create_model(conn):
             print(f"Synapses: {len(syn.i)} connections")
             print(f"Weights sample: {syn.w[:5]}")
 
-        previous_order_root_ids = next_order_root_ids
+        previous_order_root_ids = pd.DataFrame(list(next_order_root_ids), columns=['root_id'])['root_id']
         previous_idxs += len(previous_order_root_ids)
 
 
@@ -388,15 +390,30 @@ def run_experiment():
     subplot(2,1,1)
     # for key in list(pathways)[:3]:
     layer_idx = 0
-    for neuron_idx in pathways[0]:
-        M = state_monitors[0]
+    
+    # M = state_monitors[0]
 
+    # rid = get_rid_from_idx(root_id_to_index, 0)
+
+    # plt.plot(M.t/ms, M.v[0]/mV, label=f"Path {0} Neuron {0} Neuron: {rid}")
+    # rid = get_rid_from_idx(root_id_to_index, 22)
+
+    # M = state_monitors[1]
+    # plt.plot(M.t/ms, M.v[58]/mV, label=f"Path {0} Neuron {58} Neuron: {rid}", alpha=0.7, linewidth=1.0)
+
+    for neuron_idx in pathways[2]:
+        print(pathways[2])
+        print(neuron_idx)
+        print(state_monitors)
+
+        M = state_monitors[layer_idx]
         rid = get_rid_from_idx(root_id_to_index, neuron_idx)
-        local_idx = root_id_to_index[rid]
+        local_idx = neuron_idx
+        
         if layer_idx < len(M.v):
             plt.plot(
                 M.t/ms, 
-                M.v[layer_idx]/mV, 
+                M.v[neuron_idx]/mV, 
                 label=f'Path {0} Neuron {neuron_idx} (Neuron: {rid})',
                 alpha=0.7,
                 linewidth=1.0)
