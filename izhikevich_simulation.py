@@ -7,7 +7,7 @@ import itertools
 start_scope()
 
 df_conn = pd.read_csv("database/connections.csv")
-df_clas = pd.read_csv("database/classification.csv")
+df_class = pd.read_csv("database/classification.csv")
 sugar_GRNs = pd.read_csv("database/sugar_GRNs.csv")
 bitter_GRNs = pd.read_csv("database/bitter_GRNs.csv")
 lowsalt_GRNs = pd.read_csv("database/lowsalt_GRNs.csv")
@@ -40,6 +40,24 @@ def get_unique_ids(neu_array, seen_dict):
         #     # print(f"[DUPLICATE] {rid}")
     return unique_ids
 
+def get_rid_from_global_idx(rid_dict, idx):
+    matches = [key for key, val in rid_dict.items() if (val == idx)]
+    if not matches:
+        print(f" No match for local_idx={idx} in rid dict!")
+        print(len(rid_dict))
+        print(f"Available keys:: {list(rid_dict.items())[:10]}")
+        raise ValueError(f"Cannot find rid for ({idx}, {idx})")
+    return matches[0]
+
+def get_global_idx_from_layer_local(rid_dict, layer_idx, local_idx):
+    matches = [key for key, val in rid_dict.items() if (val == (layer_idx, local_idx))]
+    if not matches:
+        print(f" No match for local_idx={local_idx} in rid dict!")
+        print(len(rid_dict))
+        print(f"Available keys:: {list(rid_dict.items())[:10]}")
+        raise ValueError(f"Cannot find rid for ({layer_idx}, {local_idx})")
+    return matches[0]
+
 print("done")
 unique_neurons = pd.unique(df_conn[['pre_root_id', 'post_root_id']].values.ravel())
 unique_sugar_neurons = unique_neurons[np.isin(unique_neurons, sugar_GRNs['root_id'].values)]
@@ -54,8 +72,8 @@ a = 0.02/ms # time scale of recovery variable u
 b = 0.2/second # sensitivity of u to v
 c = -65*mV # after-spike reset of v
 d = 2*mV/ms # increment of u after spike
-v_thresh = 30*mV
-w_syn = 0.1*mV
+v_thresh = 30 * mV
+w_syn = 15 * mV
 orders = 5
 
 # Specify differential equations
@@ -104,11 +122,11 @@ def create_model(conn):
     post_offset = 0
     
 
-    sugar_GRN_IDs = sugar_GRNs['root_id']
+    grn_ids = sugar_GRNs['root_id']
     print("Printing sugar_GRN_IDs**********************")
     # print(sugar_GRN_IDs)
 
-    sugar_G = NeuronGroup(len(sugar_GRN_IDs), 
+    original_G = NeuronGroup(len(grn_ids), 
                           eqs, 
                           threshold='v >= v_thresh', 
                           reset='''
@@ -118,22 +136,22 @@ def create_model(conn):
                           method='rk4')
     # PoissonInput(target=sugar_G, target_var='v', N=len(sugar_G), rate=20*Hz, weight=0.2*mV)
     print("adding sugar GRNs")
-    update_index_map(sugar_GRNs['root_id'], root_id_to_global_index)
+    update_index_map(grn_ids, root_id_to_global_index)
     # print(root_id_to_global_index)
-    previous_idxs += len(sugar_GRN_IDs)
+    previous_idxs += len(grn_ids)
     post_ids_by_layer[0] = post_ids
     layer_offsets.append(post_ids)
-    for local_idx, rid in enumerate(sugar_GRN_IDs):
+    for local_idx, rid in enumerate(grn_ids):
         global_idx_to_layer_local[root_id_to_global_index[rid]] = (0, local_idx)
     print(f"root to layer: {global_idx_to_layer_local}")
 
 
     
-    previous_order_root_ids = sugar_GRN_IDs
-    layer_Gs = [sugar_G]
+    previous_order_root_ids = grn_ids
+    layer_Gs = [original_G]
     synapses_list = []
-    all_layers = [sugar_G]
-    for l in range(1, 3):
+    all_layers = [original_G]
+    for l in range(1, 4):
         next_order_root_ids = get_n_order_neurons(previous_order_root_ids, df_conn, 2, True, "sugar", True)
         new_next_order_idxs = [rid for rid in next_order_root_ids if rid not in root_id_to_global_index]
         print(f"new_ids length: {len(new_next_order_idxs)}")
@@ -204,7 +222,6 @@ def create_model(conn):
         #         print(root_id_to_global_index[row['pre_root_id']], root_id_to_global_index[row['post_root_id']])
 
         print((edges['post_root_id'].nunique()))
-        # print([idx for rid in edges['post_root_id'] for idx in [root_id_to_index[rid]]])
         print(len([idx for rid in edges['post_root_id'] for idx in [root_id_to_global_index[rid]]]))
 
         update_index_map(edges['post_root_id'], root_id_to_global_index)
@@ -213,10 +230,6 @@ def create_model(conn):
 
         missing_pres = [rid for rid in edges['pre_root_id'] if rid not in root_id_to_global_index]
         missing_posts = [rid for rid in edges['post_root_id'] if rid not in root_id_to_global_index]
-        # if missing_pres:
-        #     print(f"Missing presynaptic root IDs: {missing_pres}")
-        # if missing_posts:
-        #     print(f"Missing postsynaptic root IDs: {missing_posts}")
 
         pre_indices_global = [root_id_to_global_index[rid] for rid in edges['pre_root_id']]
         post_indices_global = [root_id_to_global_index[rid] for rid in edges['post_root_id']]
@@ -237,26 +250,6 @@ def create_model(conn):
         print(post_indices_local)
 
         print(len(pre_indices_local), len(post_indices_local))
-        
-
-        # print(pre_indices_global)
-        # post_indices_global = np.array(filtered_post_subset.tolist())
-        # print(post_indices_global)
-        # filtered_post_root_ids = edges['post_root_id'][mask].reset_index(drop=True).to_numpy()
-
-        # pre_start = N - len(pre_group) - len(pre_group)
-        # post_start = N - len(post_group)
-
-        print(f"Printing indicies: ")
-        # pre_indices_local = pre_indices_global
-        # # print(pre_indices)
-        # post_indices_local = post_indices_global - post_start
-        # print("***Pre:", pre_indices_local)
-        # print("***Post:", post_indices_local)
-
-        # print(f"Pre root:", filtered_pre_root_ids)
-        # print("Post root:", filtered_post_root_ids)
-        # print(type(filtered_post_root_ids))
 
         print(f"Presynaptic group size: {post_ids_by_layer[l-1]}")
         print(f"Postsynaptic group size: {post_ids_by_layer[l]}")
@@ -265,23 +258,6 @@ def create_model(conn):
         print(f"Max pre index: {max(pre_indices_local)}")
         print(f"Min post index: {min(post_indices_local)}")
         print(f"Max post index: {max(post_indices_local)}")
-        # if 323 in pre_indices_local:
-        #     print(323)
-        # if 323 in post_indices_local:
-        #     print("Post", 323)
-        #     for i in range(len(post_indices_local)):
-        #         if post_indices_local[i] == 323:
-        #             print(pre_indices_local[i], post_indices_local[i])
-
-        # for i in range(len(pre_indices_global)):
-        #     if pre_indices_global[i] == 0:
-        #         print(pre_indices_global[i], post_indices_global[i])
-        
-        # for i in range(len(pre_indices_local)):
-        #     if pre_indices_local[i] == 0:
-        #         print(pre_indices_local[i], post_indices_local[i])
-        # print(f"Post indices global: {post_indices_global}")
-        # print(f"Post indices: {post_indices_local}")
 
         nt_array = edges['nt_type'].values
 
@@ -301,15 +277,25 @@ def create_model(conn):
         syn.connect(
             i=pre_indices_local, 
             j=post_indices_local)
-        syn.w = 15 * mV
+        
+        weights = []
+        print(syn)
+        print(syn.N)
+
+    
+
+        # assert len(weights) == len(syn.w[:])
+        # syn.w[:] = weights
+        # print(syn.w)
+        # print(weights)
         print("done3.75")
 
         syn.delay = 1*ms # TODO: should this be different based on the neurons
 
-        for syn in synapses_list:
-            print(f"Synapse: {syn['syn']}")
-            print(f"source layer: {syn['source_layer']}")
-            print(f"target layer: {syn['target_layer']}")
+        # for syn in synapses_list:
+            # print(f"Synapse: {syn['syn']}")
+            # print(f"source layer: {syn['source_layer']}")
+            # print(f"target layer: {syn['target_layer']}")
 
         
 
@@ -317,31 +303,81 @@ def create_model(conn):
         previous_idxs += len(previous_order_root_ids)
         # pre_offset = post_offset
 
+    filtered_conn = conn[
+        conn['pre_root_id'].isin(set(root_id_to_global_index.keys())) &
+        conn['post_root_id'].isin(set(root_id_to_global_index.keys()))
+    ]
+
+    edge_nt_lookup = dict(
+        zip(
+            zip(filtered_conn['pre_root_id'], filtered_conn['post_root_id']),
+            filtered_conn['nt_type']
+        )
+    )
+    print(edge_nt_lookup)
+
+    layer = 1
+    for synapse in synapses_list:
+        print(synapse)
+        print(layer)
+        synapse = synapse['syn']
+        weights = []
+        for idx, (pre_id, post_id) in enumerate(zip(synapse.i[:], synapse.j[:])):
+            print(pre_id, post_id)
+
+            # Map your local indices to global IDs here:
+            pre_root = get_rid_from_global_idx(root_id_to_global_index, get_global_idx_from_layer_local(global_idx_to_layer_local, layer-1, pre_id))
+            post_root = get_rid_from_global_idx(root_id_to_global_index, get_global_idx_from_layer_local(global_idx_to_layer_local, layer, post_id))
+            # print(pre_root, post_root)
+
+            nt = edge_nt_lookup.get((pre_root, post_root), None)
+
+            if nt is not None:
+                if nt in ["GLUT", "ACH"]:
+                    sign = 1
+                elif nt == "GABA":
+                    sign = -1
+                    print(f"Inhibitory: {pre_root, post_root}")
+                else:
+                    sign = 1
+                
+            
+                print((root_id_to_global_index[pre_root], root_id_to_global_index[post_root]), "NT:", nt, "Sign:", sign)
+            else:
+                sign = 1
+
+            print(w_syn)
+            weights.append(w_syn * sign)
+        synapse.w[:] = weights
+        
+        print(synapse.w)
+        print(weights)
+    
+        print(f"Layer {layer-1} → Layer 1 synapses N:", synapse.N)
+        print("Example i:", synapse.i[:10])
+        print("Example j:", synapse.j[:10])
+        print("Example weights:", synapse.w[:10])
+        layer += 1
+
     # for i, syn in enumerate(synapses_list):
     #     print(f"Synapses for layer {i}")
     #     print(f"Pre-synaptic indices (i): {list(syn.i)}")
     #     print(f"Post-synaptic indices (j): {list(syn.j)}")
 
-    print(sugar_G.v.shape)
-    # print(type(sugar_G.v))
-
-    # Intial conditions
-    # sugar_G.v = -65*mV
-    # sugar_G.u = b * sugar_G.v
-    # # G.I = '10 * mV/ms' # constant input
+    print(original_G.v.shape)
 
     for G in layer_Gs:
         G.v = c
         G.u = b * G.v
-        G.I = 0 * mV/ms
+        G.I = 10 * mV/ms
     
-    layer_Gs[0].I[0] = 50 * mV/ms
+    layer_Gs[0].I[0] = 200 * mV/ms
 
     # G.I = '10 * mV/ms' # constant input
 
     # Monitors
-    spikemon = SpikeMonitor(sugar_G)
-    sugar_M = StateMonitor(sugar_G, 'v', record=True)
+    spikemon = SpikeMonitor(original_G)
+    sugar_M = StateMonitor(original_G, 'v', record=True)
 
     return layer_Gs, synapses_list, spikemon, sugar_M, root_id_to_global_index, global_idx_to_layer_local
 
@@ -384,10 +420,10 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
                 
                 # Get GRNs (gustatory + same taste type)
                 grn_filter = (
-                    (df_clas["class"] == "gustatory") |
-                    (df_clas["root_id"].isin(twoNs_dfs[taste])) # TODO: is this the problem? they filter by no GRNS of any modality, and no 2Ns of the same modality; issue is likely ir94e
+                    (df_class["class"] == "gustatory") |
+                    (df_class["root_id"].isin(twoNs_dfs[taste])) # TODO: is this the problem? they filter by no GRNS of any modality, and no 2Ns of the same modality; issue is likely ir94e
                 )
-                grn_ids = set(df_clas[grn_filter]["root_id"])
+                grn_ids = set(df_class[grn_filter]["root_id"])
                 next_ids -= grn_ids
 
         # Remove already visited; set the current IDs to the ones discovered in this loop, so they can be explored for 3Ns if applicable
@@ -398,11 +434,11 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
     return current_ids
 
 def run_experiment():
-    layer_Gs, synapses_list, spikemon, sugar_M, root_id_to_global_index, root_id_to_layer_local = create_model(df_conn)
+    layer_Gs, synapses_list, spikemon, sugar_M, root_id_to_global_index, global_idx_to_layer_local = create_model(df_conn)
     print("done3")
     # print(root_id_to_index)
     
-    synapse_map = create_neuronal_map(synapses_list, root_id_to_global_index, root_id_to_layer_local)
+    synapse_map = create_neuronal_map(synapses_list, root_id_to_global_index, global_idx_to_layer_local)
     # print("Synapse map:", synapse_map)
     pathways = trace_pathways(synapse_map, 0, root_id_to_global_index)
     # print("Pathways", pathways)
@@ -416,7 +452,7 @@ def run_experiment():
 
     spike_monitors = []
     for g in layer_Gs:
-        sm = SpikeMonitor(g, 'v', record=True)
+        sm = SpikeMonitor(g)
         spike_monitors.append(sm)
     
     # for i in range(len(synapses_list)):
@@ -427,14 +463,14 @@ def run_experiment():
     # print(root_id_to_layer_and_local_idx)
     layer_idx = 1
 
-    rid = get_rid_from_global_idx(root_id_to_global_index, 58)
-    print(f"type: {type(rid)}")
-    print(root_id_to_global_index[rid])
-    local_idx = root_id_to_global_index[rid]
+    # rid = get_rid_from_global_idx(root_id_to_global_index, 84)
+    # print(f"type: {type(rid)}")
+    # print(root_id_to_global_index[rid])
+    # local_idx = global_idx_to_layer_local[84][1]
 
-    print(root_id_to_global_index[rid])
-    layer_Gs[layer_idx].I[root_id_to_global_index[rid]] = 500 * mV/ms
-    print(layer_Gs[layer_idx].I[local_idx])
+    # print(root_id_to_global_index[rid])
+    # layer_Gs[layer_idx].I[local_idx] = 500 * mV/ms
+    # print(layer_Gs[layer_idx].I[local_idx])
     
     net = Network(layer_Gs + 
                   [s['syn'] for s in synapses_list] + 
@@ -470,13 +506,17 @@ def run_experiment():
     # M = state_monitors[1]
     # plt.plot(M.t/ms, M.v[58]/mV, label=f"Path {0} Neuron {58} Neuron: {rid}", alpha=0.7, linewidth=1.0)
 
-    path_idx = 3
+    path_idx = 4
+    # for i in range(len(pathways)):
+    #     if pathways[i] == [0, 84, 780]:
+    #         path_idx = i
+    #         print(path_idx)
     for neuron_idx in pathways[path_idx]:
         print(pathways[path_idx])
         print(neuron_idx)
         print(state_monitors)
 
-        (layer_idx, local_idx) = root_id_to_layer_local[neuron_idx]
+        (layer_idx, local_idx) = global_idx_to_layer_local[neuron_idx]
         M = state_monitors[layer_idx]
         rid = get_rid_from_global_idx(root_id_to_global_index, neuron_idx)
         
@@ -503,19 +543,26 @@ def run_experiment():
 
 def create_neuronal_map(synapses_list, root_id_to_global_index, root_id_to_layer_local):
     print("starting creation")
+    print(root_id_to_global_index)
     synapse_map = {}
     for synapse in synapses_list:
         # print(synapse.i, synapse.j)
+        explored = 0
+
         for pre_idx, post_idx in zip(synapse['syn'].i, synapse['syn'].j):
+            # print(synapse['source_layer'], synapse['target_layer'])
+
             global_pre_idx = get_global_idx_from_layer_local(root_id_to_layer_local, synapse['source_layer'], int(pre_idx))
             global_post_idx = get_global_idx_from_layer_local(root_id_to_layer_local, synapse['target_layer'], int(post_idx))
-            
-            if synapse['target_layer'] == 1:
-                print(f"Pre idx: {global_pre_idx}\nBefore: {pre_idx} {synapse['source_layer']} {root_id_to_layer_local[global_pre_idx]}")
-                print(f"Post idx: {global_post_idx}\nBefore: {post_idx}")
+            # if synapse['target_layer'] == 1:
+            #     print(f"Pre idx: {global_pre_idx}\nBefore: {pre_idx} {synapse['source_layer']} {root_id_to_layer_local[global_pre_idx]}")
+            #     print(f"Post idx: {global_post_idx}\nBefore: {post_idx}")
             synapse_map[int(global_pre_idx)] = synapse_map.get(int(global_pre_idx), []) + [int(global_post_idx)]
-            if synapse['target_layer'] == 1:
-                print(global_pre_idx, synapse_map[global_pre_idx])
+            # if synapse['target_layer'] == 1:
+            #     print(global_pre_idx, synapse_map[global_pre_idx])
+            explored += 1
+            # print(f"{explored} explored. {len(synapse['syn'].i)-explored} remaining.")
+        
     # print(synapse_map)
     for num in synapse_map:
         continue
@@ -523,10 +570,10 @@ def create_neuronal_map(synapses_list, root_id_to_global_index, root_id_to_layer
         # print(synapse_map[num][0])
         # print(f"{get_rid_from_idx(root_id_to_index, num)} -> {get_rid_from_idx(root_id_to_index, synapse_map[num][0])}") # get_rid_from_idx works well
         # print(root_id_to_index[get_rid_from_idx(root_id_to_index, num)])
-    print(synapse_map)
+    print("returning")
     return synapse_map
 
-def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=100):
+def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=1000):
     print("starting tracing")
     pathways = []
     path_idx = 0
@@ -544,7 +591,7 @@ def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=100)
         last_node = current_path[-1]
         first_node = current_path[0]
 
-        print("new path: ", current_path, nodes)
+        # print("new path: ", current_path, nodes)
 
         # print(f"[TRACE] Current path: {current_path}")
         # print(f"[TRACE] last_node: {last_node}")
@@ -568,12 +615,12 @@ def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=100)
         # print(pathways)
         
         if not next_nodes:
-            print("not next nodes")
+            # print("not next nodes")
             pathways.append(current_path)
             # print(path_idx, pathways[path_idx])
             path_idx += 1
         else:
-            print("is next nodes")
+            # print("is next nodes")
             for n in next_nodes:
                 if n in current_path:
                     continue
@@ -598,23 +645,6 @@ def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=100)
     print(pathways)
     return pathways
 
-def get_rid_from_global_idx(rid_dict, idx):
-    matches = [key for key, val in rid_dict.items() if (val == idx)]
-    if not matches:
-        print(f" No match for local_idx={idx} in rid dict!")
-        print(len(rid_dict))
-        print(f"Available keys:: {list(rid_dict.items())[:10]}")
-        raise ValueError(f"Cannot find rid for ({idx}, {idx})")
-    return matches[0]
-
-def get_global_idx_from_layer_local(rid_dict, layer_idx, local_idx):
-    matches = [key for key, val in rid_dict.items() if (val == (layer_idx, local_idx))]
-    if not matches:
-        print(f" No match for local_idx={local_idx} in rid dict!")
-        print(len(rid_dict))
-        print(f"Available keys:: {list(rid_dict.items())[:10]}")
-        raise ValueError(f"Cannot find rid for ({layer_idx}, {local_idx})")
-    return matches[0]
 
     
 run_experiment()   
