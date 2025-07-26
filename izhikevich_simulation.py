@@ -73,7 +73,7 @@ b = 0.2/second # sensitivity of u to v
 c = -65*mV # after-spike reset of v
 d = 2*mV/ms # increment of u after spike
 v_thresh = 30 * mV
-w_syn = 15 * mV
+w_syn = 5 * mV
 orders = 5
 
 # Specify differential equations
@@ -151,7 +151,7 @@ def create_model(conn):
     layer_Gs = [original_G]
     synapses_list = []
     all_layers = [original_G]
-    for l in range(1, 4):
+    for l in range(1, 3):
         next_order_root_ids = get_n_order_neurons(previous_order_root_ids, df_conn, 2, True, "sugar", True)
         new_next_order_idxs = [rid for rid in next_order_root_ids if rid not in root_id_to_global_index]
         print(f"new_ids length: {len(new_next_order_idxs)}")
@@ -198,11 +198,6 @@ def create_model(conn):
                        on_pre='v_post += w')
         print(len(layer_Gs[l-1]), len(layer_Gs[l]))
         
-        synapses_list.append({
-            'syn': syn,
-            'source_layer': l-1,
-            'target_layer': l
-        })
 
         all_layers.append(next_order_root_ids)
 
@@ -235,6 +230,21 @@ def create_model(conn):
         post_indices_global = [root_id_to_global_index[rid] for rid in edges['post_root_id']]
         print("***LENGTHS:", len(pre_indices_global))
         print(len(post_indices_global))
+
+        # Collect synaptic counts for each row in connections.csv
+        mask = conn['pre_root_id'].isin(edges['pre_root_id']) & conn['post_root_id'].isin(edges['post_root_id'])
+
+        result = conn[mask]
+        syn_count_list = result['syn_count'].tolist()
+        print("Syn count list: ", syn_count_list)
+
+        synapses_list.append({
+            'syn': syn,
+            'source_layer': l-1,
+            'target_layer': l,
+            'syn_count_list': syn_count_list
+        })
+        print(synapses_list)
 
         # Map back to local:
         pre_indices_local = []
@@ -314,16 +324,18 @@ def create_model(conn):
             filtered_conn['nt_type']
         )
     )
-    print(edge_nt_lookup)
+    # print(edge_nt_lookup)
 
     layer = 1
     for synapse in synapses_list:
         print(synapse)
         print(layer)
+        syn_count_list = synapse['syn_count_list']
         synapse = synapse['syn']
         weights = []
         for idx, (pre_id, post_id) in enumerate(zip(synapse.i[:], synapse.j[:])):
             print(pre_id, post_id)
+            syn_count = syn_count_list[idx]
 
             # Map your local indices to global IDs here:
             pre_root = get_rid_from_global_idx(root_id_to_global_index, get_global_idx_from_layer_local(global_idx_to_layer_local, layer-1, pre_id))
@@ -347,7 +359,7 @@ def create_model(conn):
                 sign = 1
 
             print(w_syn)
-            weights.append(w_syn * sign)
+            weights.append(syn_count * w_syn * sign)
         synapse.w[:] = weights
         
         print(synapse.w)
@@ -477,7 +489,7 @@ def run_experiment():
                   spike_monitors + 
                   state_monitors)
     print("done3.85")
-    net.run(300*ms)
+    net.run(100*ms)
     print("done4")
     # Model synaptic dynamics
     # Implement plasticity rules
@@ -511,27 +523,31 @@ def run_experiment():
     #     if pathways[i] == [0, 84, 780]:
     #         path_idx = i
     #         print(path_idx)
-    for neuron_idx in pathways[path_idx]:
-        print(pathways[path_idx])
-        print(neuron_idx)
-        print(state_monitors)
+    for path_idx in range(5):
+        plt.figure(figsize=(8, 4))
+        for neuron_idx in pathways[path_idx]:
+            print(pathways[path_idx])
+            print(neuron_idx)
+            print(state_monitors)
 
-        (layer_idx, local_idx) = global_idx_to_layer_local[neuron_idx]
-        M = state_monitors[layer_idx]
-        rid = get_rid_from_global_idx(root_id_to_global_index, neuron_idx)
-        
-        if local_idx < len(M.v):
-            plt.plot(
-                M.t/ms, 
-                M.v[local_idx]/mV, 
-                label=f'Path {path_idx} Neuron {neuron_idx} (RID: {rid})',
-                alpha=0.7,
-                linewidth=1.0)
-        
+            (layer_idx, local_idx) = global_idx_to_layer_local[neuron_idx]
+            M = state_monitors[layer_idx]
+            rid = get_rid_from_global_idx(root_id_to_global_index, neuron_idx)
+            
+            if local_idx < len(M.v):
+                plt.plot(
+                    M.t/ms, 
+                    M.v[local_idx]/mV, 
+                    label=f'Path {path_idx} Neuron {neuron_idx} (RID: {rid})',
+                    alpha=0.7,
+                    linewidth=1.0)
+            
         # layer_idx += 1
-    plt.xlabel('Time (ms)')
-    plt.ylabel('v (mV)')
-    plt.title('Membrane potential v')
+        plt.xlabel('Time (ms)')
+        plt.ylabel('v (mV)')
+        plt.title(f'Membrane potential -- Pathway {path_idx}')
+        plt.legend()
+        plt.tight_layout()
 
     # subplot(2,1,2)
     # plot(sugar_M.t/ms, sugar_M.u[0]/(mV/ms))
@@ -561,7 +577,7 @@ def create_neuronal_map(synapses_list, root_id_to_global_index, root_id_to_layer
             # if synapse['target_layer'] == 1:
             #     print(global_pre_idx, synapse_map[global_pre_idx])
             explored += 1
-            # print(f"{explored} explored. {len(synapse['syn'].i)-explored} remaining.")
+            print(f"{explored} explored. {len(synapse['syn'].i)-explored} remaining.")
         
     # print(synapse_map)
     for num in synapse_map:
@@ -592,19 +608,6 @@ def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=1000
         first_node = current_path[0]
 
         # print("new path: ", current_path, nodes)
-
-        # print(f"[TRACE] Current path: {current_path}")
-        # print(f"[TRACE] last_node: {last_node}")
-
-        # If you have layer + local idx in path: unpack properly:
-        # for layer_idx in range(len(current_path)):
-        #     # print(current_path)
-        #     # print(layer_idx)
-        #     local_idx = current_path[layer_idx]
-            # print(f"[TRACE] layer_idx={layer_idx}, local_idx={local_idx}")
-
-            # 🟢 Add this BEFORE calling get_rid_from_idx:
-            # print(f"[TRACE] About to call get_rid_from_idx with layer_idx={layer_idx}, local_idx={local_idx}")
         
         if len(current_path) >= max_depth:
             pathways[path_idx] = current_path
