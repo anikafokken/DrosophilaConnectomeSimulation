@@ -5,12 +5,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from itertools import combinations
 from venn import venn
-from venny4py import venny4py
 
 
 # DataFrame variables
-classifications = pd.read_csv("database\\classification.csv") # change this back sometime
-connections = pd.read_csv("database\\connections.csv") # version 630
+classifications = pd.read_csv("database\\classification_630.csv") # change this back sometime
+connections = pd.read_csv("database\\connections_630.csv") # version 630
 connections = connections[connections["syn_count"] >= 5]
 labels = pd.read_csv("database\\labels.csv")
 
@@ -53,7 +52,9 @@ def find_total_upstream_neurons(combined_neuron_df, connections):
     # Define a 'visited' and 'frontier' list to keep track of upstream neurons that are already accounted for
     visited = set(combined_neuron_df["post_root_id"])
     frontier = set(combined_neuron_df["post_root_id"])
+    times = 0
     while len(frontier) > 0:
+        times += 1
         new_neurons = set()
         # Where the post root ID is the same as the post root ID from the input neuron list
         new_connections = connections[connections["post_root_id"].isin(frontier)]
@@ -63,8 +64,9 @@ def find_total_upstream_neurons(combined_neuron_df, connections):
         if len(new_neurons) == 0:
             break  
         # Add the new neurons of this loop into the visited list
-        visited.update(new_neurons)
         frontier = new_neurons
+        print("\n", times, len(visited), len(frontier))
+        visited.update(new_neurons)
     return list(visited)
 
 # Finds total downstream neurons without considering order
@@ -76,8 +78,10 @@ def find_total_downstream_neurons(combined_neuron_df, connections):
         new_neurons = set()
         # Where the pre root ID is the same as the pre root ID from the input neuron list
         new_connections = connections[connections["pre_root_id"].isin(frontier)]
+        filtered_connections = new_connections[new_connections['syn_count'] > 5]
+        print(new_connections['neuropil'].unique())
         # Find the post root IDs of the pre root IDs (the roots downstream of each ID in the input list)
-        downstream_neurons = set(new_connections["post_root_id"])
+        downstream_neurons = set(filtered_connections["post_root_id"])
         new_neurons = downstream_neurons - visited
         if len(new_neurons) == 0:
             break
@@ -155,7 +159,10 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
 
         if filtering_on:
             if order == 2:
-                print(order) # TODO: filter out all GRNs
+                # print(order) # TODO: filter out all GRNs
+                grn_filter = (classifications["class"] == "gustatory")
+                grn_ids = set(classifications[grn_filter]["root_id"])
+                next_ids -= grn_ids
             if order == 3:
                 
                 # Get GRNs (gustatory + same taste type)
@@ -164,6 +171,7 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
                         (classifications["class"] == "gustatory") |
                         (classifications["root_id"].isin(twoNs_dfs[taste])) # TODO: is this the problem? they filter by no GRNS of any modality, and no 2Ns of the same modality; issue is likely ir94e
                     )
+                    print(taste, grn_filter)
                     grn_ids = set(classifications[grn_filter]["root_id"])
                     next_ids -= grn_ids
 
@@ -178,7 +186,7 @@ def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on
 def get_df_ids_length(df):
     return len(df["root_id"])
 
-def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
+def total_shared_order_neurons(sugar, water, bitter, ir94e, connections, order):
     if order == 3:
         next_order = {
             # "sugar": get_n_order_neurons(sugar, connections, order, True, "sugar", filtering_on=True),
@@ -195,15 +203,61 @@ def total_shared_order_neurons(sugar, water, bitter, salt, connections, order):
             "sugar": get_n_order_neurons(sugar, connections, order, True, "sugar", filtering_on=True),
             "water": get_n_order_neurons(water, connections, order, True, "water", True),
             "bitter": get_n_order_neurons(bitter, connections, order, True, "bitter", True),
-            "ir94e": get_n_order_neurons(salt, connections, order, True, "ir94e", True),
+            "ir94e": get_n_order_neurons(ir94e, connections, order, True, "ir94e", True),
             "sour": get_n_order_neurons(sour_GRNs, connections, order, True, "sour", True)
         }
+    
+    sets2 = {
+        "Sugar": set(sugar_2Ns),
+        "Water": set(water_2Ns),
+        "Bitter": set(bitter_2Ns),
+        "Ir94e": set(ir94e_2Ns)
+    }
 
-    for r in range(2, 6):  # combinations of size 2 to 5
+    sets3 = {
+        "Sugar": set(sugar_3Ns),
+        "Water": set(water_3Ns),
+        "Bitter": set(bitter_3Ns),
+        "Ir94e": set(lowsalt_3Ns)
+    }
+
+    second_order_calculated = {
+        "sugar": get_n_order_neurons(sugar, connections, 2, True, "sugar", True),
+        "water": get_n_order_neurons(water, connections, 2, True, "water", True),
+        "bitter": get_n_order_neurons(bitter, connections, 2, True, "bitter", True),
+        "ir94e": get_n_order_neurons(ir94e, connections, 2, True, "ir94e", True)
+    }
+
+    third_order_calculated = {
+        "sugar": get_n_order_neurons(sugar, connections, 3, True, "sugar", True),
+        "water": get_n_order_neurons(water, connections, 3, True, "water", False),
+        "bitter": get_n_order_neurons(bitter, connections, 3, True, "bitter", True),
+        "ir94e": get_n_order_neurons(ir94e, connections, 3, True, "ir94e", True)
+    }
+
+    print(get_n_order_neurons(water, connections, 3, True, "water", True))
+
+    print(third_order_calculated)
+
+    only_in_theirs = set(bitter_3Ns) - set(third_order_calculated["bitter"])
+    only_in_ours = set(third_order_calculated["bitter"]) - set(bitter_3Ns)
+    print(f"Only in theirs:", only_in_theirs)
+    print("Only in ours:", only_in_ours)
+
+
+    plotted_shared_neurons = {}
+    for r in range(2, 5):  # combinations of size 2 to 5
         for combo in combinations(next_order.keys(), r):
             # print(set(second_order[combo[0]]) & set(second_order[combo[1]]))
             shared_neurons = set.intersection(*[next_order[name] for name in combo])
             print(f"Total shared neurons in {list(combo)}: {len(shared_neurons)}")
+    
+    if order == 2:
+        venn(second_order_calculated)
+        plt.title("Shared 2Ns")
+    elif order == 3:
+        venn(third_order_calculated)
+        plt.title("Shared 3Ns")
 
 def get_by_nt(neu_df, nt):
     return neu_df[neu_df['nt_type'] == nt]
@@ -241,6 +295,15 @@ def find_nt_percentages(neu_df):
         nt = [GLUT, GABA, ACH, OCT, SER, DA][nt_i]
         nt_percentage = get_nt_percent(neu_df, nt_name)
         print(f"{nt_name}: {nt_percentage}%")
+
+def analyze_location(neu_df):
+    downstream_neurons = connections[connections['post_root_id'].isin(find_total_downstream_neurons(neu_df, connections))]
+    location_dict = {}
+    for location in downstream_neurons['neuropil']:
+        location_dict[location] = location_dict.get(location, 0) + 1
+    plt.figure()
+    plt.pie(location_dict.values(), explode=0, labels=location_dict.keys(), colors=None)
+        
 
 def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, sour_df, merge=True, filtering_on=True):
     sugar_4Ns = pd.Series(list(get_n_order_neurons(sugar_3Ns, connections, 2, True, "sugar", True)), name='root_id')
@@ -356,6 +419,18 @@ def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, sour_df, merge=True, fi
     plt.title("SER Percent Across Neurons")
     plt.legend()
 
+    plt.figure()
+    for taste in dfs_special:
+        x_points = list(range(len(dfs_special[taste])))
+        y_points = [get_nt_percent(get_connections(dfs_special[taste][i]), "GABA") for i in x_points]
+        plt.plot(x_points, y_points, label=taste.capitalize(), color=colors[taste])
+        
+    plt.xlabel("Neuron Index")
+    plt.ylabel("GABA Percent")
+    plt.title("GABA Percent Across Neurons")
+    plt.legend()
+
+
 
 
     # Amount-based
@@ -393,6 +468,17 @@ def composite_report(neu_df1, neu_df2, neu_df3, neu_df4, sour_df, merge=True, fi
     plt.title("SER Amount Across Neurons")
     plt.legend()
 
+    plt.figure()
+    for taste in dfs_special:
+        x_points = list(range(len(dfs_special[taste])))
+        y_points = [get_nt_amount(get_connections(dfs_special[taste][i]), "GABA") for i in x_points]
+        plt.plot(x_points, y_points, label=taste.capitalize(), color=colors[taste])
+        
+    plt.xlabel("Neuron Index")
+    plt.ylabel("GABA Amount")
+    plt.title("GABA Amount Across Neurons")
+    plt.legend()
+
     total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 2)
     total_shared_order_neurons(neu_df1, neu_df2, neu_df3, neu_df4, connections, 3)
 
@@ -427,6 +513,7 @@ def analyze_downstream_neuropil(neu_list, taste):
 # print(connections['nt_type'].unique())
 composite_report(sugar_GRNs, water_GRNs, bitter_GRNs, ir94e_GRNs, sour_GRNs, True, filtering_on=True)
 analyze_downstream_neuropil(sugar_GRNs, "sugar")
+# analyze_location(sugar_GRNs)
 plt.show()
 # Conclusion (3Ns)
 
