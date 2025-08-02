@@ -132,7 +132,12 @@ def create_model(conn):
     root_id_to_global_index = {}
     global_idx_to_layer_local = {}
     
-    grn_ids = bitter_GRNs['root_id']
+    num_trials = 5
+    sugar_samples = sugar_GRNs['root_id'].sample(num_trials, random_state=1)
+    bitter_samples = bitter_GRNs['root_id'].sample(num_trials, random_state=1)
+
+    grn_ids = pd.concat([sugar_GRNs['root_id'], bitter_GRNs['root_id']])
+    grn_ids = pd.concat([sugar_samples, bitter_samples])
     print("Printing sugar_GRN_IDs**********************")
     # print(sugar_GRN_IDs)
 
@@ -179,7 +184,7 @@ def create_model(conn):
             synapses_list = []
             all_layers = [original_G]
             neuropils_by_layer = {}
-            for l in range(1, 5):
+            for l in range(1, 4):
                 next_order_root_ids = get_n_order_neurons(previous_order_root_ids, df_conn, 2, True, "sugar", True)
                 new_next_order_idxs = [rid for rid in next_order_root_ids if rid not in root_id_to_global_index]
                 print(f"new_ids length: {len(new_next_order_idxs)}")
@@ -448,19 +453,20 @@ def create_model(conn):
                 G.u = b * G.v
                 G.I = 0 * mV/ms
             
-            layer_Gs[0].I[0] = 20 * mV/ms
+            layer_Gs[0].I = 20 * mV/ms
+            layer_Gs[0].I = 20 * mV/ms
             return layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer
 
     # layer_Gs_S, synapses_list_S, all_weights_S, neuron_labels_S = from_input_GRNs(sugar_GRNs)
     # layer_Gs_B, synapses_list_B, all_weights_B, neuron_labels_B = from_input_GRNs(bitter_GRNs)
 
-    layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer = from_input_GRNs(bitter_GRNs['root_id'])
+    layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer = from_input_GRNs(grn_ids)
 
     # G.I = '10 * mV/ms' # constant input
 
     # return (layer_Gs_S, layer_Gs_B), (synapses_list_S, synapses_list_B), root_id_to_global_index, global_idx_to_layer_local, (all_weights_S, all_weights_B), (neuron_labels_S, neuron_labels_B)
 
-    return layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer
+    return grn_ids, layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer
 
 # Finds all neurons of a given order (2 or 3)
 def get_n_order_neurons(neu_list, connections, order, merge, taste, filtering_on):
@@ -548,9 +554,29 @@ def classify_neuron_tuning(global_idx, root_id_to_idx, ir94e_GRNs):
     else:
         return "Not found"
 
+def compare_voltage_to_memory_formation(pathways, memory_neuropils, state_monitors):
+    voltages = {}
+    state_mon = state_monitors[-1]
+    # print(f"State mon.v: {state_mon.v}")
+    for path_idx in range(len(pathways)):
+        pathway = pathways[path_idx]
+        last_root_id = get_rid_from_global_idx(root_id_to_global_index, pathway[-1])
+        postsynaptic_conns = df_conn[df_conn['post_root_id'] == last_root_id]
+        if postsynaptic_conns['neuropil'].isin(memory_neuropils).any():
+            # print(state_mon.record)
+            voltages[tuple(pathway)] = state_mon.v[global_idx_to_layer_local[pathway[-1]][1]]
+    # print(voltages)
+
+    for path, voltage_trace in voltages.items():
+        plt.plot(voltage_trace / mvolt, label=str(path), alpha=0.7)
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Membrane potential (mV)')
+    plt.legend()
+    return voltages
+
 def run_experiment():
     # (layer_Gs_S, layer_Gs_B), (synapses_list_S, synapses_list_B), root_id_to_global_index, global_idx_to_layer_local, (all_weights_S, all_weights_B), (neuron_labels_S, neuron_labels_B) = create_model(df_conn)
-    layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer = create_model(df_conn)
+    grn_ids, layer_Gs, synapses_list, all_weights, neuron_labels, neuropils_by_layer = create_model(df_conn)
     
     print("done3")
     # print(root_id_to_index)
@@ -558,7 +584,12 @@ def run_experiment():
     
     synapse_map = create_neuronal_map(synapses_list, root_id_to_global_index, global_idx_to_layer_local)
     # print("Synapse map:", synapse_map)
-    pathways = trace_pathways(synapse_map, 0, root_id_to_global_index)
+
+    start_indices = []
+    for id in grn_ids:
+        start_indices.append(root_id_to_global_index[id])
+
+    pathways = trace_pathways_multiple_starts(synapse_map, start_indices, root_id_to_global_index)
     # print("Pathways", pathways)
 
     path_idx = 3
@@ -578,6 +609,8 @@ def run_experiment():
     for g in layer_Gs:
         M = StateMonitor(g, 'v', record=True)
         state_monitors.append(M)
+    
+    # print(state_monitors[-1])
 
 
     spike_monitors = []
@@ -586,6 +619,18 @@ def run_experiment():
         spike_monitors.append(sm)
     state_monitors_S = state_monitors
 
+    memory_neuropils = [
+        'MB_CA_L', 'MB_CA_R',
+        'MB_PED_L', 'MB_PED_R',
+        'MB_VL_L', 'MB_VL_R',
+        'MB_ML_L', 'MB_ML_R',
+        'CRE_L', 'CRE_R',
+        'SMP_L', 'SMP_R',
+        'SIP_L', 'SIP_R',
+        'SLP_L', 'SLP_R',
+        'LH_L', 'LH_R'
+    ]
+    
     
     
     # for i in range(len(synapses_list)):
@@ -610,7 +655,7 @@ def run_experiment():
                   spike_monitors + 
                   state_monitors)
     print("done3.85")
-    net.run(1000*ms)
+    net.run(100*ms)
     print("done4")
     # Model synaptic dynamics
     # Implement plasticity rules
@@ -634,6 +679,8 @@ def run_experiment():
                 print(f"Global neuron {global_id} in layer {layer} spiked at {t} ms")
 
 
+    voltages = compare_voltage_to_memory_formation(pathways, memory_neuropils, state_monitors)
+
     # print(neuron_labels)
 
     # Plot results
@@ -653,7 +700,7 @@ def run_experiment():
         #         print(path_idx)
 
         # path_idxs = filter_by_sign(pathways, "Positive", 5, all_weights)
-        for path_idx in range(5):
+        for path_idx in range(18):
             plt.figure(figsize=(8, 4))
             for neuron_idx in pathways[path_idx]:
                 print(pathways[path_idx])
@@ -909,9 +956,9 @@ def run_experiment():
                 blit=True
             )
 
-            # print("exporting")
-            # ani.save('voltage_animation.gif', writer='pillow', fps=30)
-            # print("exported")
+            print("exporting")
+            ani.save('voltage_animation.gif', writer='pillow', fps=30)
+            print("exported")
 
             
         
@@ -931,6 +978,8 @@ def run_experiment():
     # node_diagram(pathways, all_weights)
 
 
+    print(pathways)
+    print(root_id_to_global_index)
     animate_spiking(pathways, state_monitors, spike_data, "voltage")
     plot_voltages(pathways)
     plot_neuropils_percentages(neuropils_by_layer)
@@ -1002,64 +1051,111 @@ def create_neuronal_map(synapses_list, root_id_to_global_index, root_id_to_layer
     print("returning")
     return synapse_map
 
-def trace_pathways(synapse_map, start_idx, rid_dict, max_depth=5, max_paths=1000):
+def trace_pathways(synapse_map, start_indices, rid_dict, max_depth=5, max_paths=1000):
     print("starting tracing")
     pathways = []
     path_idx = 0
-    stack = [[start_idx]]
-    print("created variables")
-    # print("Synapse map[0]: ", synapse_map[0])
-    # print("Synapse map[57]: ", synapse_map[57])
+    for start_idx in start_indices:
+        stack = [[start_idx]]
+        collected_paths = []
+        visited_paths = set()
+        print("created variables")
+        # print("Synapse map[0]: ", synapse_map[0])
+        # print("Synapse map[57]: ", synapse_map[57])
 
-    while stack:
-        # print(f"\n\n\n\n\n****STACK:***\n\n {stack}")
-        current_path = stack.pop()
-        nodes = []
-        for node in current_path:
-            nodes.append(get_rid_from_global_idx(rid_dict, node))
-        last_node = current_path[-1]
-        first_node = current_path[0]
+        idx_instances = 0
+        last_used_idx = 0
+        while stack:
+            # print(f"\n\n\n\n\n****STACK:***\n\n {stack}")
+            current_path = stack.pop()
+            while current_path[0] == last_used_idx and idx_instances > 2:
+                current_path = stack.pop()
+                print(current_path)
+                print(idx_instances)
+            if current_path[0] != last_used_idx:
+                idx_instances = 0
+            
+            nodes = []
+            for node in current_path:
+                nodes.append(get_rid_from_global_idx(rid_dict, node))
+            last_node = current_path[-1]
+            first_node = current_path[0]
 
-        # print("new path: ", current_path, nodes)
-        
-        if len(current_path) >= max_depth:
-            pathways[path_idx] = current_path
-            path_idx += 1
-            continue
-        next_nodes = synapse_map.get(last_node, [])
-        # print(f"Next nodes: {next_nodes}")
-        # print(pathways)
-        
-        if not next_nodes:
-            # print("not next nodes")
-            pathways.append(current_path)
-            # print(path_idx, pathways[path_idx])
-            path_idx += 1
-        else:
-            # print("is next nodes")
-            for n in next_nodes:
-                if n in current_path:
-                    continue
-                stack.append(current_path + [n])
-                # print(stack[-1])
-        
-        if path_idx >= max_paths:
-            print(f"Stopped early: hit max_paths = {max_paths}")
-            break
+            # print("new path: ", current_path, nodes)
+            
+            if len(current_path) >= max_depth:
+                pathways[path_idx] = current_path
+                path_idx += 1
+                continue
+            next_nodes = synapse_map.get(last_node, [])
+            last_used_idx = current_path[0]
+            idx_instances += 1
+            # print(f"Next nodes: {next_nodes}")
+            # print(pathways)
+            
+            if not next_nodes:
+                # print("not next nodes")
+                pathways.append(current_path)
+                # print(path_idx, pathways[path_idx])
+                path_idx += 1
+            else:
+                # print("is next nodes")
+                for n in next_nodes:
+                    if n in current_path:
+                        continue
+                    stack.append(current_path + [n])
+                    # print(stack[-1])
+            
+            if path_idx >= max_paths:
+                print(f"Stopped early: hit max_paths = {max_paths}")
+                break
 
-        # next_idxs = [synapse_map[current]]
-        # if len(next_idxs) > 1:
-        #     for idx in next_idxs[1:]:
-        #         on_hold.append(idx)
-        # elif len(next_idxs) < 1:
-        #     current = on_hold[0]
-        #     on_hold[0].pop(0)
+            # next_idxs = [synapse_map[current]]
+            # if len(next_idxs) > 1:
+            #     for idx in next_idxs[1:]:
+            #         on_hold.append(idx)
+            # elif len(next_idxs) < 1:
+            #     current = on_hold[0]
+            #     on_hold[0].pop(0)
 
-        # else:
-        #     current = next_idxs[0]
-        #     next_idxs.pop(0)
-    # print(pathways)
+            # else:
+            #     current = next_idxs[0]
+            #     next_idxs.pop(0)
+        print(pathways)
     return pathways
+
+def trace_pathways_multiple_starts(synapse_map, start_indices, root_id_to_global_index, max_pathways=3):
+    all_paths = []
+    for start_idx in start_indices:
+        stack = [[start_idx]]
+        collected_paths = []
+        visited_paths = set()
+
+        while stack and len(collected_paths) < max_pathways:
+            current_path = stack.pop()
+            last_node = current_path[-1]
+
+            # Avoid duplicates
+            path_tuple = tuple(current_path)
+            if path_tuple in visited_paths:
+                continue
+            visited_paths.add(path_tuple)
+
+            # Get downstream nodes from synapse_map
+            downstream_nodes = synapse_map.get(last_node, [])
+
+            if not downstream_nodes:
+                # End of path - collect it
+                collected_paths.append(current_path)
+                continue
+
+            for next_node in downstream_nodes:
+                if next_node not in current_path:  # Avoid cycles
+                    stack.append(current_path + [next_node])
+
+        all_paths.extend(collected_paths)
+
+    return all_paths
 
 
 
