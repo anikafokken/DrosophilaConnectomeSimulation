@@ -7,6 +7,7 @@ from itertools import combinations
 from venn import venn
 
 global connections
+version = 783
 # DataFrame variables
 classifications = pd.read_csv("database\\classification_630.csv") # change this back sometime
 conn = pd.read_csv("database\\connections_630.csv") # version 630
@@ -20,6 +21,17 @@ bitter_GRNs = pd.read_csv("database\\bitter_GRNs.csv")
 ir94e_GRNs = pd.read_csv("database\\ir94e_GRNs.csv")
 lowsalt_GRNs = pd.read_csv("database\\lowsalt_GRNs.csv")
 sour_GRNs = pd.read_csv("database\\sour_GRNs.csv")
+
+
+new_sugar_water_GRNs = pd.read_csv("database\\v783_sugar_water_GRNs.csv")
+new_bitter_GRNs = pd.read_csv("database\\v783_bitter_GRNs.csv")
+new_ir94e_GRNs = pd.read_csv("database\\v783_ir94e_GRNs.csv")
+
+
+if version == 783:
+    sugar_water_GRNs = new_sugar_water_GRNs
+    bitter_GRNs = new_bitter_GRNs
+    ir94e_GRNs = new_ir94e_GRNs
 
 
 sugar_2Ns = pd.read_csv("output_csvs\\sugar_2Ns.csv")['root_id']
@@ -42,7 +54,9 @@ tastes_2Ns = {
     "ir94e": ir94e_2Ns
 }
 
-all_GRNs = pd.concat([sugar_GRNs, water_GRNs,bitter_GRNs,lowsalt_GRNs], axis=0)
+
+if version == 783: all_GRNs = pd.concat([sugar_water_GRNs, bitter_GRNs,ir94e_GRNs], axis=0) 
+else: all_GRNs = pd.concat(sugar_GRNs, water_GRNs, bitter_GRNs, ir94e_GRNs)
 plt.rcParams["font.family"] = "Times New Roman"
 
 def second_order(taste_GRNs, taste):
@@ -58,11 +72,35 @@ def second_order(taste_GRNs, taste):
         
         return connectivity, second_orders
 
-sugar_second_order_connectivity, sugar_2Ns = second_order(sugar_GRNs, 'sugar')
-print(sugar_second_order_connectivity)
-water_second_order_connectivity, water_2Ns = second_order(water_GRNs, 'water')
+
+
+sugar_water_second_order_connectivity, sugar_water_2Ns = second_order(sugar_water_GRNs, 'sugar')
+if version != 783: water_second_order_connectivity, water_2Ns = second_order(water_GRNs, 'water')
 bitter_second_order_connectivity, bitter_2Ns = second_order(bitter_GRNs, 'bitter')
-lowsalt_second_order_connectivity, lowsalt_2Ns = second_order(lowsalt_GRNs, 'lowsalt')
+ir94e_second_order_connectivity, ir94e_2Ns = second_order(ir94e_GRNs, 'ir94e')
+
+sugar_water_2Ns = sugar_water_2Ns[~sugar_water_2Ns['root_id'].isin(all_GRNs['root_id'])]
+if version != 783: water_2Ns = water_2Ns[~water_2Ns['root_id'].isin(all_GRNs['root_id'])]
+bitter_2Ns = bitter_2Ns[~bitter_2Ns['root_id'].isin(all_GRNs['root_id'])]
+ir94e_2N = ir94e_2Ns[~ir94e_2Ns['root_id'].isin(all_GRNs['root_id'])]
+
+sugar_water_list = {'{}'.format(value) for value in sugar_water_2Ns['root_id'].unique()}
+sugar_water_dict = {'Sugar/Water 2Ns': sugar_water_list}
+
+if version != 783:
+    water_list = {'{}'.format(value) for value in water_2Ns['root_id'].unique()}
+    water_dict = {'Water 2Ns': water_list}
+
+bitter_list = {'{}'.format(value) for value in bitter_2Ns['root_id'].unique()}
+bitter_dict = {'Bitter 2Ns': bitter_list}
+
+lowsalt_list = {'{}'.format(value) for value in ir94e_2Ns['root_id'].unique()}
+lowsalt_dict = {'IR94e 2Ns': lowsalt_list}
+
+colors = ('#cf4848','orange','#3489eb','purple')
+crossover = {**sugar_water_dict, **bitter_dict, **lowsalt_dict}
+venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
+# plt.show()
 
 def third_order(taste_second_order_connectivity, taste, taste_second_orders):
             connectivity = pd.merge(taste_second_order_connectivity.query("syn_count >= 10")['post_root_id'], conn[['pre_root_id','post_root_id','neuropil','syn_count','nt_type']],
@@ -91,40 +129,51 @@ def third_order(taste_second_order_connectivity, taste, taste_second_orders):
             third_orders['const'] = 1  # this will be used for OLS regression
             return connectivity, third_orders
 
-sugar_third_order_connectivity, sugar_3Ns = third_order(sugar_second_order_connectivity, 'sugar', sugar_2Ns)
-water_third_order_connectivity, water_3Ns = third_order(water_second_order_connectivity, 'water', water_2Ns)
-bitter_third_order_connectivity, bitter_3Ns = third_order(bitter_second_order_connectivity, 'bitter', bitter_2Ns)
-lowsalt_third_order_connectivity, lowsalt_3Ns = third_order(lowsalt_second_order_connectivity, 'lowsalt', lowsalt_2Ns)
 
-print(np.unique(sugar_3Ns.root_id.values).shape)
-print(np.unique(water_3Ns.root_id.values).shape)
+def draw_venn_diagram(neu_dict, order):
+    sugar_water_Ns = neu_dict['sugar/water']
+    bitter_Ns = neu_dict['bitter']
+    ir94e_Ns = neu_dict['ir94e']
+    sugar_water_list = {'{}'.format(value) for value in sugar_water_Ns['root_id'].unique()}
+    sugar_water_dict = {f'Sugar/Water {order}Ns': sugar_water_list}
+
+    # water_list = {'{}'.format(value) for value in water_3Ns['root_id'].unique()}
+    # water_dict = {'Water 3Ns': water_list}
+
+
+    bitter_list = {'{}'.format(value) for value in bitter_Ns['root_id'].unique()}
+    bitter_dict = {f'Bitter {order}Ns': bitter_list}
+
+    lowsalt_list = {'{}'.format(value) for value in ir94e_Ns['root_id'].unique()}
+    lowsalt_dict = {f'IR94e {order}Ns': lowsalt_list}
+
+    colors = ('#cf4848','orange','#3489eb','purple')
+    crossover = {**sugar_water_dict, **bitter_dict, **lowsalt_dict}
+    venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
+
+sugar_water_third_order_connectivity, sugar_water_3Ns = third_order(sugar_water_second_order_connectivity, 'sugar', sugar_water_2Ns)
+# water_third_order_connectivity, water_3Ns = third_order(water_second_order_connectivity, 'water', water_2Ns)
+bitter_third_order_connectivity, bitter_3Ns = third_order(bitter_second_order_connectivity, 'bitter', bitter_2Ns)
+lowsalt_third_order_connectivity, lowsalt_3Ns = third_order(ir94e_second_order_connectivity, 'ir94e', ir94e_2Ns)
+
+print(np.unique(sugar_water_3Ns.root_id.values).shape)
+# print(np.unique(water_3Ns.root_id.values).shape)
 print(np.unique(bitter_3Ns.root_id.values).shape)
 print(np.unique(lowsalt_3Ns.root_id.values).shape)
 
 
-sugar_list = {'{}'.format(value) for value in sugar_2Ns['root_id'].unique()}
-sugar_dict = {'Sugar 2Ns': sugar_list}
-
-water_list = {'{}'.format(value) for value in water_2Ns['root_id'].unique()}
-water_dict = {'Water 2Ns': water_list}
-
-bitter_list = {'{}'.format(value) for value in bitter_2Ns['root_id'].unique()}
-bitter_dict = {'Bitter 2Ns': bitter_list}
-
-lowsalt_list = {'{}'.format(value) for value in lowsalt_2Ns['root_id'].unique()}
-lowsalt_dict = {'IR94e 2Ns': lowsalt_list}
-
-colors = ('#cf4848','orange','#3489eb','purple')
-crossover = {**sugar_dict, **water_dict, **bitter_dict, **lowsalt_dict}
-venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
+sugar_water_fourth_order_connectivity, sugar_water_4Ns = third_order(sugar_water_third_order_connectivity, 'sugar', sugar_water_3Ns)
+bitter_fourth_order_connectivity, bitter_4Ns = third_order(sugar_water_third_order_connectivity, 'sugar', bitter_3Ns)
+ir94e_fourth_order_connectivity, ir94e_4Ns = third_order(sugar_water_third_order_connectivity, 'sugar', lowsalt_3Ns)
 
 
 
-sugar_list = {'{}'.format(value) for value in sugar_3Ns['root_id'].unique()}
-sugar_dict = {'Sugar 3Ns': sugar_list}
 
-water_list = {'{}'.format(value) for value in water_3Ns['root_id'].unique()}
-water_dict = {'Water 3Ns': water_list}
+sugar_water_list = {'{}'.format(value) for value in sugar_water_3Ns['root_id'].unique()}
+sugar_water_dict = {'Sugar/Water 3Ns': sugar_water_list}
+
+# water_list = {'{}'.format(value) for value in water_3Ns['root_id'].unique()}
+# water_dict = {'Water 3Ns': water_list}
 
 
 bitter_list = {'{}'.format(value) for value in bitter_3Ns['root_id'].unique()}
@@ -134,8 +183,25 @@ lowsalt_list = {'{}'.format(value) for value in lowsalt_3Ns['root_id'].unique()}
 lowsalt_dict = {'IR94e 3Ns': lowsalt_list}
 
 colors = ('#cf4848','orange','#3489eb','purple')
-crossover = {**sugar_dict, **water_dict, **bitter_dict, **lowsalt_dict}
+crossover = {**sugar_water_dict, **bitter_dict, **lowsalt_dict}
 venn(crossover, cmap = ListedColormap(colors), figsize = (8,8), fontsize = 14)
+# plt.show()
+
+sugar_water_fourth_order_connectivity, sugar_water_4Ns = third_order(sugar_water_third_order_connectivity, 'sugar', sugar_water_3Ns)
+bitter_fourth_order_connectivity, bitter_4Ns = third_order(sugar_water_third_order_connectivity, 'bitter', bitter_3Ns)
+ir94e_fourth_order_connectivity, ir94e_4Ns = third_order(sugar_water_third_order_connectivity, 'ir94e', lowsalt_3Ns)
+
+sugar_water_fifth_order_connectivity, sugar_water_5Ns = third_order(sugar_water_fourth_order_connectivity, 'sugar', sugar_water_4Ns)
+bitter_fifth_order_connectivity, bitter_5Ns = third_order(bitter_fourth_order_connectivity, 'bitter', bitter_4Ns)
+ir94e_fifth_order_connectivity, ir94e_5Ns = third_order(ir94e_fourth_order_connectivity, 'ir94e', ir94e_4Ns)
+
+neu_df = {'sugar/water': sugar_water_4Ns, 'bitter': bitter_4Ns, 'ir94e': ir94e_4Ns}
+draw_venn_diagram(neu_df, 4)
+neu_df = {'sugar/water': sugar_water_5Ns, 'bitter': bitter_5Ns, 'ir94e': ir94e_5Ns}
+draw_venn_diagram(neu_df, 5)
+plt.show()
+
+
 
 # pd.set_option("display.max_colwidth", None)
 
